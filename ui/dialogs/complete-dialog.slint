@@ -50,7 +50,16 @@ export component CompleteDialog inherits Window {
                 background: transparent;
 
                 TouchArea {
-                    moved => { root.drag-window(); }
+                    pointer-event(pe) => {
+                        if (pe.button == PointerEventButton.left && pe.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-window();
+                        }
+                    }
                 }
 
                 HorizontalLayout {
@@ -219,7 +228,6 @@ export component CompleteDialog inherits Window {
                         op-t := TouchArea {
                             clicked => {
                                 root.open-file(root.task-id);
-                                root.closed();
                             }
                         }
 
@@ -247,7 +255,6 @@ export component CompleteDialog inherits Window {
                         opw-t := TouchArea {
                             clicked => {
                                 root.open-with(root.task-id);
-                                root.closed();
                             }
                         }
 
@@ -275,7 +282,6 @@ export component CompleteDialog inherits Window {
                         opf-t := TouchArea {
                             clicked => {
                                 root.open-folder(root.task-id);
-                                root.closed();
                             }
                         }
 
@@ -399,7 +405,6 @@ export component CompleteDialog inherits Window {
                             mouse-cursor: grab;
                             clicked => {
                                 root.start-drag(root.task-id);
-                                root.closed();
                             }
                         }
 

@@ -1,8 +1,8 @@
-; VDM Downloader — Inno Setup script
+﻿; VDM Downloader â€” Inno Setup script
 ; Build: scripts\build-installer.ps1 (or ISCC installer\vdm.iss after cargo build --release)
 
 #define MyAppName "VDM Downloader"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "VDM Contributors"
 #define MyAppExeName "vdm.exe"
 
@@ -50,5 +50,5 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; session state lives in %APPDATA%\VDM — left intact on purpose
+; session state lives in %APPDATA%\VDM â€” left intact on purpose
 Type: filesandordirs; Name: "{app}"

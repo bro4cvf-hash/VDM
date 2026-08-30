@@ -1123,7 +1123,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
                 let _ = std::process::Command::new("explorer")
-                    .args(["/select,", &path.to_string_lossy().to_string()])
+                    .arg(format!("/select,{}", path.to_string_lossy()))
                     .spawn();
             } else if let Some(parent) = path.parent() {
                 let _ = std::process::Command::new("explorer").arg(parent).spawn();
@@ -2162,7 +2162,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
                 let _ = std::process::Command::new("explorer")
-                    .args(["/select,", &path.to_string_lossy().to_string()])
+                    .arg(format!("/select,{}", path.to_string_lossy()))
                     .spawn();
             } else if let Some(parent) = path.parent() {
                 let _ = std::process::Command::new("explorer").arg(parent).spawn();
@@ -2184,7 +2184,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
                 let _ = std::process::Command::new("explorer")
-                    .args(["/select,", &path.to_string_lossy().to_string()])
+                    .arg(format!("/select,{}", path.to_string_lossy()))
                     .spawn();
             } else if let Some(parent) = path.parent() {
                 let _ = std::process::Command::new("explorer").arg(parent).spawn();

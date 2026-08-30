@@ -5,6 +5,7 @@ component TrayItem inherits Rectangle {
     in property <string> label: "";
     in property <image> icon-src;
     in property <color> tint: #98989D;
+    in property <bool> is-brand-icon: false;
     callback clicked();
 
     height: 36px;
@@ -29,7 +30,15 @@ component TrayItem inherits Rectangle {
             height: 18px;
             y: (parent.height - self.height) / 2;
 
-            Icon {
+            if root.is-brand-icon: Image {
+                source: root.icon-src;
+                width: 16px;
+                height: 16px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            if !root.is-brand-icon: Icon {
                 source: root.icon-src;
                 width: 15px;
                 height: 15px;
@@ -95,8 +104,8 @@ export component TrayMenu inherits Window {
 
             TrayItem {
                 label: "Open VDM";
-                icon-src: @image-url("../icons/folder.svg");
-                tint: #98989D;
+                icon-src: @image-url("../icons/vdm.svg");
+                is-brand-icon: true;
                 clicked => { root.item("open"); }
             }
 

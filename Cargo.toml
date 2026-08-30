@@ -1,6 +1,6 @@
 [package]
 name = "vdm"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Visk Download Manager (VDM) - High-performance native download manager (Rust + Slint)"
 authors = ["VDM Team"]

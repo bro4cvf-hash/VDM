@@ -46,7 +46,16 @@ export component DuplicateDownloadDialog inherits Window {
                 height: 38px;
 
                 TouchArea {
-                    moved => { root.drag-window(); }
+                    pointer-event(pe) => {
+                        if (pe.button == PointerEventButton.left && pe.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-window();
+                        }
+                    }
                 }
 
                 HorizontalLayout {
@@ -95,34 +104,33 @@ export component DuplicateDownloadDialog inherits Window {
                 padding-bottom: 14px;
                 spacing: 10px;
 
-                // ── Info Header Card (Clean elevated card with centered layout) ──
+                // ── Info Header Card (Non-touchable notice card - darker recessed background) ──
                 Rectangle {
                     border-radius: 10px;
-                    background: #202024;
+                    background: #121214;
                     border-width: 1px;
-                    border-color: #2E2E34;
+                    border-color: #222226;
 
                     HorizontalLayout {
-                        padding-left: 14px;
-                        padding-right: 14px;
-                        padding-top: 12px;
-                        padding-bottom: 12px;
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 10px;
+                        padding-bottom: 10px;
                         spacing: 12px;
-                        alignment: center;
 
                         Rectangle {
-                            width: 38px;
-                            height: 38px;
-                            border-radius: 9px;
-                            background: root.is-active-downloading ? #0A84FF20 : #FF9F0A20;
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 7px;
+                            background: root.is-active-downloading ? #0A84FF18 : #FF9F0A18;
                             border-width: 1px;
-                            border-color: root.is-active-downloading ? #0A84FF40 : #FF9F0A40;
+                            border-color: root.is-active-downloading ? #0A84FF35 : #FF9F0A35;
                             y: (parent.height - self.height) / 2;
 
                             Icon {
                                 source: root.is-active-downloading ? @image-url("../icons/zap.svg") : @image-url("../icons/alert.svg");
-                                width: 18px;
-                                height: 18px;
+                                width: 16px;
+                                height: 16px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                                 tint: root.is-active-downloading ? #64D2FF : #FFB340;
@@ -138,14 +146,15 @@ export component DuplicateDownloadDialog inherits Window {
                                 text: root.is-active-downloading
                                     ? "This file is currently being downloaded"
                                     : "A download for this file already exists in your list";
-                                font-size: 13px;
+                                font-size: 12.5px;
                                 font-weight: 600;
                                 color: #FFFFFF;
+                                overflow: elide;
                             }
 
                             Text {
                                 text: root.filename;
-                                font-size: 12px;
+                                font-size: 11.5px;
                                 font-weight: 500;
                                 color: #64D2FF;
                                 overflow: elide;
@@ -156,23 +165,25 @@ export component DuplicateDownloadDialog inherits Window {
 
                                 Text {
                                     text: "Status: " + root.existing-status;
-                                    font-size: 11px;
+                                    font-size: 10.5px;
                                     font-weight: 500;
                                     color: #8E8E93;
+                                    overflow: elide;
                                 }
 
                                 if root.existing-size-text != "" && root.existing-size-text != "—": Text {
                                     text: "Size: " + root.existing-size-text;
-                                    font-size: 11px;
+                                    font-size: 10.5px;
                                     font-weight: 500;
                                     color: #8E8E93;
+                                    overflow: elide;
                                 }
                             }
                         }
                     }
                 }
 
-                // ── Options List (Distinct elevated cards with proper spacing) ──
+                // ── Options List (Elevated interactive cards with uniform start alignment) ──
                 VerticalLayout {
                     spacing: 8px;
 
@@ -180,9 +191,9 @@ export component DuplicateDownloadDialog inherits Window {
                     Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt1-t.pressed ? #2A2A30 : opt1-t.has-hover ? #24242A : #1D1D21;
+                        background: opt1-t.pressed ? #2A2A30 : opt1-t.has-hover ? #24242A : #1E1E22;
                         border-width: 1px;
-                        border-color: opt1-t.pressed ? #0A84FF88 : opt1-t.has-hover ? #3F3F48 : #2B2B32;
+                        border-color: opt1-t.pressed ? #0A84FF88 : opt1-t.has-hover ? #3F3F48 : #2E2E34;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -197,7 +208,6 @@ export component DuplicateDownloadDialog inherits Window {
                             padding-left: 12px;
                             padding-right: 12px;
                             spacing: 12px;
-                            alignment: center;
 
                             Rectangle {
                                 width: 32px;
@@ -274,9 +284,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt-prog-t.pressed ? #2A2A30 : opt-prog-t.has-hover ? #24242A : #1D1D21;
+                        background: opt-prog-t.pressed ? #2A2A30 : opt-prog-t.has-hover ? #24242A : #1E1E22;
                         border-width: 1px;
-                        border-color: opt-prog-t.pressed ? #30D15888 : opt-prog-t.has-hover ? #3F3F48 : #2B2B32;
+                        border-color: opt-prog-t.pressed ? #30D15888 : opt-prog-t.has-hover ? #3F3F48 : #2E2E34;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -291,7 +301,6 @@ export component DuplicateDownloadDialog inherits Window {
                             padding-left: 12px;
                             padding-right: 12px;
                             spacing: 12px;
-                            alignment: center;
 
                             Rectangle {
                                 width: 32px;
@@ -337,9 +346,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if !root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt2-t.pressed ? #2A2A30 : opt2-t.has-hover ? #24242A : #1D1D21;
+                        background: opt2-t.pressed ? #2A2A30 : opt2-t.has-hover ? #24242A : #1E1E22;
                         border-width: 1px;
-                        border-color: opt2-t.pressed ? #64D2FF88 : opt2-t.has-hover ? #3F3F48 : #2B2B32;
+                        border-color: opt2-t.pressed ? #64D2FF88 : opt2-t.has-hover ? #3F3F48 : #2E2E34;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -354,7 +363,6 @@ export component DuplicateDownloadDialog inherits Window {
                             padding-left: 12px;
                             padding-right: 12px;
                             spacing: 12px;
-                            alignment: center;
 
                             Rectangle {
                                 width: 32px;
@@ -400,9 +408,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if !root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt3-t.pressed ? #2A2A30 : opt3-t.has-hover ? #24242A : #1D1D21;
+                        background: opt3-t.pressed ? #2A2A30 : opt3-t.has-hover ? #24242A : #1E1E22;
                         border-width: 1px;
-                        border-color: opt3-t.pressed ? #FF453A88 : opt3-t.has-hover ? #3F3F48 : #2B2B32;
+                        border-color: opt3-t.pressed ? #FF453A88 : opt3-t.has-hover ? #3F3F48 : #2E2E34;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -417,7 +425,6 @@ export component DuplicateDownloadDialog inherits Window {
                             padding-left: 12px;
                             padding-right: 12px;
                             spacing: 12px;
-                            alignment: center;
 
                             Rectangle {
                                 width: 32px;

@@ -48,7 +48,16 @@ export component RenewLinkDialog inherits Window {
                 height: 38px;
 
                 TouchArea {
-                    moved => { root.drag-window(); }
+                    pointer-event(pe) => {
+                        if (pe.button == PointerEventButton.left && pe.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-window();
+                        }
+                    }
                 }
 
                 HorizontalLayout {

@@ -4,119 +4,106 @@
 
 # Visk Download Manager (VDM)
 
-**A high-performance, native multi-threaded download manager for Windows.**  
+**A high-performance, native multi-threaded download manager for Windows.**
 Built entirely in **Rust** and **Slint UI** — lightning fast, minimal memory footprint, zero webview or Electron bloat.
 
 <br/>
 
-[![Release](https://img.shields.io/badge/Release-v0.3.0-0A84FF?style=flat-square)](../../releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.4.0-0A84FF?style=flat-square)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](../../releases/latest)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![UI](https://img.shields.io/badge/UI-Slint%201.12-8E5CE6?style=flat-square)](https://slint.dev)
 [![License](https://img.shields.io/badge/License-MIT-30D158?style=flat-square)](LICENSE)
 
 <br/>
-<br/>
 
-<img src="docs/img/app-main.png?raw=true&v=0.3.0" width="860" alt="VDM Main Interface" />
-
-<br/>
-<br/>
+<img src="docs/img/app-main.png?raw=true&v=0.4.0" width="860" alt="VDM Main Interface" />
 
 </div>
 
----
-
-## ⚡ Highlights
+## Highlights
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h4>🚀 Multi-Threaded Acceleration</h4>
-      <p>Up to 32 parallel connections per download using adaptive HTTP Range work-stealing and sparse pre-allocation to maximize network throughput.</p>
+      <h3><img src="docs/icons/bolt.svg" width="20" height="20" align="absmiddle"/> Multi-Threaded Acceleration</h3>
+      <p>Up to 32 parallel connections per download via adaptive HTTP Range work-stealing and sparse pre-allocation.</p>
     </td>
     <td width="50%" valign="top">
-      <h4>🛡️ Crash-Resilient & Resumable</h4>
-      <p>Automatic byte-level resumption. Chunk progress is continually persisted to SQLite WAL storage, surviving network drops, system reboots, or unexpected restarts.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>🌐 Browser Integration</h4>
-      <p>Seamless one-click integration with Google Chrome, Microsoft Edge, and Brave. Intercepts web downloads automatically and routes them straight into VDM.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h4>🪟 Windows Startup & System Tray</h4>
-      <p>Lives unobtrusively in your system tray. Features full two-way synchronization with Windows Task Manager and Taskbar Startup Apps for silent background startup.</p>
+      <h3><img src="docs/icons/shield.svg" width="20" height="20" align="absmiddle"/> Crash-Resilient &amp; Resumable</h3>
+      <p>Byte-level resumption backed by SQLite WAL storage — survives network drops, reboots, and unexpected restarts.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <h4>📂 Smart Category Routing</h4>
-      <p>Intelligently categorizes files into Video, Music, Documents, Programs, and Compressed archives with customizable destination folders.</p>
+      <h3><img src="docs/icons/globe.svg" width="20" height="20" align="absmiddle"/> Browser Integration</h3>
+      <p>One-click integration with Chrome, Edge, and Brave. Web downloads are intercepted and routed straight into VDM.</p>
     </td>
     <td width="50%" valign="top">
-      <h4>🎬 Media Stream Extraction</h4>
-      <p>Built-in support for capturing media streams and video links with seamless delegation to yt-dlp and ffmpeg for audio/video muxing.</p>
+      <h3><img src="docs/icons/tray.svg" width="20" height="20" align="absmiddle"/> System Tray &amp; Startup</h3>
+      <p>Lives quietly in your system tray with two-way sync with Windows Task Manager and Taskbar Startup Apps.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3><img src="docs/icons/folder.svg" width="20" height="20" align="absmiddle"/> Smart Category Routing</h3>
+      <p>Intelligently routes files into Video, Music, Documents, Programs, and Compressed folders — fully customizable.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3><img src="docs/icons/play.svg" width="20" height="20" align="absmiddle"/> Media Stream Extraction</h3>
+      <p>Captures media streams and video links, delegating to yt-dlp and ffmpeg for audio/video muxing.</p>
     </td>
   </tr>
 </table>
 
-<br/>
-
----
-
-## 🖼️ Interface Showcase
+## Interface
 
 <div align="center">
 
-| Download Info | File Conflict Resolver | Settings & System Startup |
-|:---:|:---:|:---:|
-| <img src="docs/img/app-info-dialog.png?raw=true&v=0.3.0" width="280" alt="Download Info Dialog" /> | <img src="docs/img/app-conflict.png?raw=true&v=0.3.0" width="280" alt="Conflict Dialog" /> | <img src="docs/img/app-settings.png?raw=true&v=0.3.0" width="280" alt="Settings Dialog" /> |
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/img/app-downloading.png?raw=true&v=0.4.0" width="290" alt="Active Download" /><br/><sub><b>Active Download</b></sub></td>
+    <td align="center" width="33%"><img src="docs/img/app-complete.png?raw=true&v=0.4.0" width="290" alt="Download Complete" /><br/><sub><b>Download Complete</b></sub></td>
+    <td align="center" width="33%"><img src="docs/img/app-conflict.png?raw=true&v=0.4.0" width="290" alt="File Conflict Resolver" /><br/><sub><b>Conflict Resolver</b></sub></td>
+  </tr>
+</table>
 
 </div>
 
-<br/>
+## Installation
 
----
-
-## 📦 Installation
-
-### Option 1: Official Installer (Recommended)
-
-Download the latest setup package from the [**Releases**](../../releases/latest) page:
-
-- **`VDM-Setup-0.3.0.exe`** — Installs VDM with Start Menu shortcuts, desktop icon, and uninstaller.
-
-### Option 2: Build From Source
-
-```powershell
-# Clone the repository
-git clone https://github.com/bro4cvf-hash/VDM.git
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3><img src="docs/icons/package.svg" width="20" height="20" align="absmiddle"/> Installer</h3>
+      <p>Grab <a href="../../releases/latest"><b>VDM-Setup-0.4.0.exe</b></a> from the Releases page. Includes Start Menu shortcuts, desktop icon, and uninstaller.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3><img src="docs/icons/layers.svg" width="20" height="20" align="absmiddle"/> Build From Source</h3>
+      <p>Requires the <a href="https://rustup.rs"><b>Rust toolchain</b></a> (1.75+).</p>
+      <pre>git clone https://github.com/bro4cvf-hash/VDM.git
 cd VDM
+cargo run --release</pre>
+    </td>
+  </tr>
+</table>
 
-# Compile and launch in release mode
-cargo run --release
-```
+## Browser Extension
 
-> **Requirements**: [Rust toolchain](https://rustup.rs) (1.75+).
+<table>
+  <tr>
+    <td width="60%" valign="top">
+      <h3><img src="docs/icons/plug.svg" width="20" height="20" align="absmiddle"/> One-Time Setup</h3>
+      <p><b>1.</b> In VDM, open <b>Settings → Browser Integration</b> and click <b>Install Extension</b> to reveal the companion folder.</p>
+      <p><b>2.</b> Open <code>chrome://extensions</code> or <code>edge://extensions</code> and enable <b>Developer mode</b>.</p>
+      <p><b>3.</b> Click <b>Load unpacked</b> and select the <code>extension</code> directory.</p>
+      <p><b>4.</b> Browser downloads now stream directly into VDM.</p>
+    </td>
+    <td valign="top"><img src="docs/img/app-extension.png?raw=true&v=0.4.0" width="330" alt="Browser Integration" /></td>
+  </tr>
+</table>
 
-<br/>
-
----
-
-## 🔌 Browser Extension Setup
-
-1. In VDM, open **Settings → Browser Integration** and click **Install Extension** to reveal the companion extension folder.
-2. Open your browser's extension manager (`chrome://extensions` or `edge://extensions`) and turn on **Developer mode**.
-3. Click **Load unpacked** and select the unpacked `extension` directory.
-4. Browser downloads will now automatically stream directly into VDM.
-
-<br/>
-
----
-
-## 🏗️ Technical Architecture
+## Architecture
 
 ```
 VDM/
@@ -137,10 +124,6 @@ VDM/
 
 **Core Stack:** `Rust 2021` · `Slint UI` · `Tokio` · `Reqwest (rustls)` · `SQLite 3` · `Inno Setup`
 
-<br/>
-
----
-
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE) — © 2026 VDM Contributors.
