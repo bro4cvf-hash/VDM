@@ -18,7 +18,7 @@ Built entirely in **Rust** and **Slint UI** — lightning fast, minimal memory f
 <br/>
 <br/>
 
-<img src="docs/img/app-main.png" width="860" alt="VDM Main Interface" />
+<img src="docs/img/app-main.png?raw=true&v=0.3.0" width="860" alt="VDM Main Interface" />
 
 <br/>
 <br/>
@@ -72,7 +72,7 @@ Built entirely in **Rust** and **Slint UI** — lightning fast, minimal memory f
 
 | Download Info | File Conflict Resolver | Settings & System Startup |
 |:---:|:---:|:---:|
-| <img src="docs/img/app-info-dialog.png" width="280" alt="Download Info Dialog" /> | <img src="docs/img/app-conflict.png" width="280" alt="Conflict Dialog" /> | <img src="docs/img/app-settings.png" width="280" alt="Settings Dialog" /> |
+| <img src="docs/img/app-info-dialog.png?raw=true&v=0.3.0" width="280" alt="Download Info Dialog" /> | <img src="docs/img/app-conflict.png?raw=true&v=0.3.0" width="280" alt="Conflict Dialog" /> | <img src="docs/img/app-settings.png?raw=true&v=0.3.0" width="280" alt="Settings Dialog" /> |
 
 </div>
 
