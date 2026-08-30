@@ -1,0 +1,30 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+
+# build artifacts
+/dist
+
+# local test media
+*.mp4
+*.webm
+*.opus
+*.dat
+*.part
+
+# Slint
+*.slint.bk
+
+# Logs / OS
+logs
+*.log
+.DS_Store
+*.suo
+*.sw?
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+docs/img/app-complete.png

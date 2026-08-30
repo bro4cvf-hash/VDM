@@ -1,0 +1,432 @@
+import { Icon } from "../components/icon.slint";
+import { CaptionBtn } from "../components/buttons.slint";
+
+// ════════════════════════════════════════════════════════════════════
+// Duplicate / Existing File Conflict Dialog (Apple / macOS Glass Style)
+// ════════════════════════════════════════════════════════════════════
+export component DuplicateDownloadDialog inherits Window {
+    width: 540px;
+    height: root.is-active-downloading ? 320px : 380px;
+    no-frame: true;
+    background: transparent;
+    title: "Download File Conflict";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in-out property <string> task-id: "";
+    in-out property <string> filename: "";
+    in-out property <string> new-suggested-name: "";
+    in-out property <string> existing-status: "Already in download list";
+    in-out property <string> existing-size-text: "—";
+    in-out property <string> save-folder: "";
+    in-out property <string> new-url: "";
+    in-out property <bool> is-active-downloading: false;
+
+    callback rename-and-download(string);
+    callback resume-or-update-link(string, string);
+    callback overwrite-existing(string, string);
+    callback show-existing-progress(string);
+    callback closed();
+    callback drag-window();
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        background: #18181A;
+        border-width: 1px;
+        border-color: #2E2E32;
+        drop-shadow-blur: 36px;
+        drop-shadow-color: #000000ee;
+        clip: true;
+
+        VerticalLayout {
+            padding: 0;
+            spacing: 0;
+
+            // ── Top Title Bar (Seamlessly blended with background) ──
+            Rectangle {
+                height: 38px;
+
+                TouchArea {
+                    moved => { root.drag-window(); }
+                }
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 10px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            y: (parent.height - self.height) / 2;
+
+                            Image {
+                                source: @image-url("../icons/vdm.svg");
+                                width: 16px;
+                                height: 16px;
+                            }
+                        }
+
+                        Text {
+                            text: root.is-active-downloading ? "Download In Progress" : "File Already In List";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: #FFFFFF;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    CaptionBtn {
+                        glyph: "✕";
+                        danger: true;
+                        clicked => { root.closed(); }
+                    }
+                }
+            }
+
+            // ── Content Area ──
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 6px;
+                padding-bottom: 14px;
+                spacing: 12px;
+
+                // ── Info Header ──
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 10px;
+                        background: root.is-active-downloading ? #0A84FF20 : #FF9F0A20;
+
+                        Icon {
+                            source: root.is-active-downloading ? @image-url("../icons/zap.svg") : @image-url("../icons/alert.svg");
+                            width: 20px;
+                            height: 20px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            tint: root.is-active-downloading ? #64D2FF : #FFB340;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+
+                        Text {
+                            text: root.is-active-downloading
+                                ? "This file is currently being downloaded"
+                                : "A download for this file already exists in your list";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: #FFFFFF;
+                        }
+
+                        Text {
+                            text: root.filename;
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #64D2FF;
+                            overflow: elide;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 14px;
+
+                            Text {
+                                text: "Status: " + root.existing-status;
+                                font-size: 11px;
+                                font-weight: 500;
+                                color: #8E8E93;
+                            }
+
+                            if root.existing-size-text != "" && root.existing-size-text != "—": Text {
+                                text: "Size: " + root.existing-size-text;
+                                font-size: 11px;
+                                font-weight: 500;
+                                color: #8E8E93;
+                            }
+                        }
+                    }
+                }
+
+                // ── Options List (Unified column alignment: Line LINE LINE) ──
+                VerticalLayout {
+                    spacing: 4px;
+
+                    // Option 1: Download as New File (Auto-Rename)
+                    Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        background: opt1-t.pressed ? #2C2C30 : opt1-t.has-hover ? #242428 : transparent;
+                        animate background { duration: 120ms; }
+
+                        opt1-t := TouchArea {
+                            clicked => {
+                                root.rename-and-download(root.new-suggested-name != "" ? root.new-suggested-name : root.filename);
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: #0A84FF20;
+                                y: (parent.height - self.height) / 2;
+
+                                Icon {
+                                    source: @image-url("../icons/plus.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #0A84FF;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    text: "Download as New File (Auto-Rename)";
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: #FFFFFF;
+                                }
+
+                                Text {
+                                    text: "Saves as \"" + root.new-suggested-name + "\" without affecting existing file";
+                                    font-size: 11px;
+                                    color: #8E8E93;
+                                    overflow: elide;
+                                }
+                            }
+
+                            Text {
+                                text: "Recommended";
+                                font-size: 10px;
+                                font-weight: 700;
+                                color: #0A84FF;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Option 2 (Active Only): Show active downloading progress box
+                    if root.is-active-downloading: Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        background: opt-prog-t.pressed ? #2C2C30 : opt-prog-t.has-hover ? #242428 : transparent;
+                        animate background { duration: 120ms; }
+
+                        opt-prog-t := TouchArea {
+                            clicked => {
+                                root.show-existing-progress(root.task-id);
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: #30D15820;
+                                y: (parent.height - self.height) / 2;
+
+                                Icon {
+                                    source: @image-url("../icons/play.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #30D158;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    text: "Show Active Download Box";
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: #FFFFFF;
+                                }
+
+                                Text {
+                                    text: "Bring the active download progress window to front";
+                                    font-size: 11px;
+                                    color: #8E8E93;
+                                }
+                            }
+                        }
+                    }
+
+                    // Option 3 (Inactive): Resume & Update Address
+                    if !root.is-active-downloading: Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        background: opt2-t.pressed ? #2C2C30 : opt2-t.has-hover ? #242428 : transparent;
+                        animate background { duration: 120ms; }
+
+                        opt2-t := TouchArea {
+                            clicked => {
+                                root.resume-or-update-link(root.task-id, root.new-url);
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: #64D2FF20;
+                                y: (parent.height - self.height) / 2;
+
+                                Icon {
+                                    source: @image-url("../icons/refresh.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #64D2FF;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    text: "Resume & Update Address";
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: #FFFFFF;
+                                }
+
+                                Text {
+                                    text: "Refresh expired link and continue from where it stopped";
+                                    font-size: 11px;
+                                    color: #8E8E93;
+                                }
+                            }
+                        }
+                    }
+
+                    // Option 4 (Inactive): Overwrite & Restart
+                    if !root.is-active-downloading: Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        background: opt3-t.pressed ? #2C2C30 : opt3-t.has-hover ? #242428 : transparent;
+                        animate background { duration: 120ms; }
+
+                        opt3-t := TouchArea {
+                            clicked => {
+                                root.overwrite-existing(root.task-id, root.new-url);
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: #FF453A20;
+                                y: (parent.height - self.height) / 2;
+
+                                Icon {
+                                    source: @image-url("../icons/trash.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #FF453A;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    text: "Overwrite & Restart";
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: #FF6961;
+                                }
+
+                                Text {
+                                    text: "Replace the previous file and download afresh from 0%";
+                                    font-size: 11px;
+                                    color: #8E8E93;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // ── Footer Cancel Button ──
+                HorizontalLayout {
+                    alignment: end;
+
+                    Rectangle {
+                        height: 30px;
+                        min-width: 80px;
+                        border-radius: 6px;
+                        background: cnl-t.pressed ? #2C2C30 : cnl-t.has-hover ? #242428 : transparent;
+                        border-width: 1px;
+                        border-color: cnl-t.has-hover ? #3F3F46 : #2E2E32;
+                        animate background { duration: 120ms; }
+
+                        cnl-t := TouchArea {
+                            clicked => { root.closed(); }
+                        }
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #D4D4D8;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

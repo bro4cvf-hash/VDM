@@ -1,0 +1,215 @@
+import { Icon } from "icon.slint";
+
+// ── Interactive Table Header Column with Sorting & Drag-Resize ──
+export component HeaderCol inherits Rectangle {
+    in property <string> text: "";
+    in property <string> col-id: "";
+    in property <string> active-sort: "";
+    in property <bool> sort-asc: true;
+    in property <bool> is-flex: false;
+    in-out property <length> col-width: 100px;
+    in property <bool> can-resize: true;
+    callback sort-clicked(string);
+    callback resized(length);
+    callback context-menu(length);
+
+    horizontal-stretch: is-flex ? 1 : 0;
+    min-width: is-flex ? Math.max(120px, col-width) : col-width;
+    max-width: is-flex ? 100000px : col-width;
+    height: 100%;
+
+    // Main header body (clickable for sorting, right-clickable for column visibility)
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width - (root.can-resize ? 10px : 0px);
+        height: 100%;
+
+        HorizontalLayout {
+            spacing: 5px;
+            alignment: start;
+
+            Text {
+                text: root.text;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.6px;
+                color: root.active-sort == root.col-id ? #64D2FF : h-touch.has-hover ? #ffffff : #7C7C80;
+                animate color { duration: 120ms; }
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.active-sort == root.col-id: Text {
+                text: root.sort-asc ? "▲" : "▼";
+                font-size: 8.5px;
+                color: #64D2FF;
+                vertical-alignment: center;
+            }
+        }
+
+        h-touch := TouchArea {
+            pointer-event(pe) => {
+                if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right {
+                    root.context-menu(self.mouse-x);
+                }
+            }
+            clicked => { root.sort-clicked(root.col-id); }
+        }
+    }
+
+    // Right-edge column resize handle
+    if root.can-resize: Rectangle {
+        x: parent.width - 10px;
+        y: 0;
+        width: 10px;
+        height: 100%;
+
+        // Subtle vertical separator line
+        Rectangle {
+            x: 4px;
+            y: 8px;
+            width: 1px;
+            height: 14px;
+            background: r-touch.has-hover || r-touch.pressed ? #0A84FF : #333336;
+            animate background { duration: 100ms; }
+        }
+
+        r-touch := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.resized(self.mouse-x - self.pressed-x);
+                }
+            }
+        }
+    }
+}
+
+// ── Column Visibility Menu Checkbox Item ──
+export component ColMenuItem inherits Rectangle {
+    in property <string> text: "";
+    in property <bool> checked: true;
+    in property <bool> locked: false;
+    callback toggled();
+
+    height: 28px;
+    border-radius: 6px;
+    background: c-touch.has-hover && !locked ? #28282C : transparent;
+    animate background { duration: 100ms; }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        alignment: center;
+
+        Rectangle {
+            width: 14px;
+            height: 14px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 3px;
+            background: root.checked ? #0A84FF : #28282C;
+            border-width: 1px;
+            border-color: root.checked ? #0A84FF : #48484C;
+            animate background { duration: 120ms; }
+
+            if root.checked: Icon {
+                source: @image-url("../icons/check.svg");
+                width: 8px;
+                height: 8px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: #ffffff;
+            }
+        }
+
+        Text {
+            text: root.text;
+            font-size: 11.5px;
+            font-weight: root.checked ? 500 : 400;
+            color: root.locked ? #7C7C80 : (root.checked ? #f5f5f7 : #8E8E93);
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+        }
+
+        if root.locked: Text {
+            text: "Fixed";
+            font-size: 9.5px;
+            color: #5C5C60;
+            vertical-alignment: center;
+        }
+    }
+
+    c-touch := TouchArea {
+        enabled: !root.locked;
+        clicked => { root.toggled(); }
+    }
+}
+
+// ── Sidebar row ──
+export component SideItem inherits Rectangle {
+    in property <string> label: "";
+    in property <image> icon-src;
+    in property <length> icon-nudge: 0px;
+    in property <int> count: 0;
+    in property <bool> is-active: false;
+    in property <color> tint: #98989D;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 6px;
+    // never cover the sliding accent indicator
+    background: is-active ? transparent : touch.has-hover ? #232325 : transparent;
+    animate background { duration: 150ms; easing: ease-out; }
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 9px;
+
+        Rectangle {
+            width: 16px;
+
+            Icon {
+                source: root.icon-src;
+                width: 15px;
+                height: 15px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2 + root.icon-nudge;
+                tint: is-active ? #ffffff : tint;
+            }
+        }
+
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: is-active ? 600 : 400;
+            color: is-active ? #ffffff : touch.has-hover ? #e5e5ea : #c7c7cc;
+            animate color { duration: 150ms; }
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        if count > 0: Text {
+            text: root.count;
+            font-size: 11px;
+            font-weight: 600;
+            color: is-active ? #ffffff : #7C7C80;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SectionHeader inherits Text {
+    height: 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    color: #7C7C80;
+}

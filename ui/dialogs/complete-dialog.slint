@@ -1,0 +1,440 @@
+import { Icon } from "../components/icon.slint";
+import { CaptionBtn } from "../components/buttons.slint";
+
+// ════════════════════════════════════════════════
+// Download Complete Dialog (IDM-style Modern Glass)
+// ════════════════════════════════════════════════
+export component CompleteDialog inherits Window {
+    width: 490px;
+    height: 315px;
+    no-frame: true;
+    background: transparent;
+    title: "Download complete";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in-out property <string> task-id: "";
+    in-out property <string> filename: "";
+    in-out property <string> size: "";
+    in-out property <string> total-bytes-text: "";
+    in-out property <string> url: "";
+    in-out property <string> location: "";
+    in-out property <image> file-icon;
+    in-out property <bool> has-sys-icon: false;
+    in-out property <string> file-type: "file";
+    in-out property <bool> dont-show-again: false;
+
+    callback open-file(string);
+    callback open-with(string);
+    callback open-folder(string);
+    callback start-drag(string);
+    callback dont-show-changed(bool);
+    callback closed();
+    callback drag-window();
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        background: #18181A;
+        border-width: 1px;
+        border-color: #2E2E32;
+        drop-shadow-blur: 36px;
+        drop-shadow-color: #000000cc;
+
+        VerticalLayout {
+            padding: 0;
+            spacing: 0;
+
+            // ── Blended Integrated Header ──
+            Rectangle {
+                height: 36px;
+                background: #141416;
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+
+                TouchArea {
+                    moved => { root.drag-window(); }
+                }
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 8px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            y: (parent.height - self.height) / 2;
+
+                            Image {
+                                source: @image-url("../icons/vdm.svg");
+                                width: 16px;
+                                height: 16px;
+                            }
+                        }
+
+                        Text {
+                            text: "Download complete";
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            color: #FFFFFF;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    CaptionBtn {
+                        glyph: "✕";
+                        danger: true;
+                        clicked => { root.closed(); }
+                    }
+                }
+            }
+
+            // ── Body ──
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 10px;
+                padding-bottom: 14px;
+                spacing: 11px;
+
+                // Hero Complete Info Header
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: center;
+
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 8px;
+                        background: #202024;
+                        border-width: 1px;
+                        border-color: #303036;
+
+                        if root.has-sys-icon: Image {
+                            source: root.file-icon;
+                            width: 26px;
+                            height: 26px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        if !root.has-sys-icon: Icon {
+                            source: @image-url("../icons/tick.svg");
+                            width: 20px;
+                            height: 20px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            tint: #30D158;
+                        }
+                    }
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 2px;
+
+                        Text {
+                            text: "Download complete";
+                            font-size: 13.5px;
+                            font-weight: 700;
+                            color: #FFFFFF;
+                        }
+
+                        Text {
+                            text: "Downloaded " + root.size + (root.total-bytes-text != "" ? " (" + root.total-bytes-text + ")" : "");
+                            font-size: 11.5px;
+                            color: #8E8E93;
+                        }
+                    }
+                }
+
+                // Address field
+                VerticalLayout {
+                    spacing: 3px;
+                    Text { text: "Address"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #8E8E93; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 5px;
+                        background: #141416;
+                        border-width: 1px;
+                        border-color: #242428;
+                        clip: true;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text {
+                                text: root.url;
+                                font-size: 11px;
+                                color: #64D2FF;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // The file saved as field
+                VerticalLayout {
+                    spacing: 3px;
+                    Text { text: "The file saved as"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #8E8E93; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 5px;
+                        background: #141416;
+                        border-width: 1px;
+                        border-color: #242428;
+                        clip: true;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text {
+                                text: root.location;
+                                font-size: 11px;
+                                color: #FFFFFF;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // Action Buttons: Open, Open with..., Open folder, Close
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    // Open
+                    Rectangle {
+                        height: 32px;
+                        min-width: 78px;
+                        border-radius: 6px;
+                        background: op-t.pressed ? #0055B3 :
+                                    op-t.has-hover ? #2394FF : #0A84FF;
+                        drop-shadow-blur: op-t.has-hover ? 10px : 2px;
+                        drop-shadow-color: #0A84FF55;
+                        animate background { duration: 120ms; }
+
+                        op-t := TouchArea {
+                            clicked => {
+                                root.open-file(root.task-id);
+                                root.closed();
+                            }
+                        }
+
+                        Text {
+                            text: "Open";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #FFFFFF;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+
+                    // Open with...
+                    Rectangle {
+                        height: 32px;
+                        min-width: 94px;
+                        border-radius: 6px;
+                        background: opw-t.pressed ? #323236 :
+                                    opw-t.has-hover ? #2A2A2E : #202024;
+                        border-width: 1px;
+                        border-color: opw-t.has-hover ? #404046 : #303034;
+                        animate background { duration: 120ms; }
+
+                        opw-t := TouchArea {
+                            clicked => {
+                                root.open-with(root.task-id);
+                                root.closed();
+                            }
+                        }
+
+                        Text {
+                            text: "Open with…";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #FFFFFF;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+
+                    // Open folder
+                    Rectangle {
+                        height: 32px;
+                        min-width: 94px;
+                        border-radius: 6px;
+                        background: opf-t.pressed ? #323236 :
+                                    opf-t.has-hover ? #2A2A2E : #202024;
+                        border-width: 1px;
+                        border-color: opf-t.has-hover ? #404046 : #303034;
+                        animate background { duration: 120ms; }
+
+                        opf-t := TouchArea {
+                            clicked => {
+                                root.open-folder(root.task-id);
+                                root.closed();
+                            }
+                        }
+
+                        Text {
+                            text: "Open folder";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #FFFFFF;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+
+                    // Close
+                    Rectangle {
+                        height: 32px;
+                        min-width: 72px;
+                        border-radius: 6px;
+                        background: cl-t.pressed ? #323236 :
+                                    cl-t.has-hover ? #2A2A2E : #202024;
+                        border-width: 1px;
+                        border-color: cl-t.has-hover ? #404046 : #303034;
+                        animate background { duration: 120ms; }
+
+                        cl-t := TouchArea {
+                            clicked => { root.closed(); }
+                        }
+
+                        Text {
+                            text: "Close";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #D1D1D6;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+
+                // Bottom bar: Checkbox & Interactive Accent Drag Handle
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: space-between;
+
+                    // Don't show again Checkbox
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        Rectangle {
+                            width: 15px;
+                            height: 15px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 4px;
+                            background: root.dont-show-again ? #0A84FF : #222225;
+                            border-width: 1px;
+                            border-color: root.dont-show-again ? #0A84FF : #404046;
+                            animate background { duration: 120ms; }
+                            TouchArea { clicked => { root.dont-show-again = !root.dont-show-again; root.dont-show-changed(root.dont-show-again); } }
+                            if root.dont-show-again: Icon {
+                                source: @image-url("../icons/tick.svg");
+                                width: 9px;
+                                height: 9px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: #FFFFFF;
+                            }
+                        }
+                        Text {
+                            text: "Don't show this dialog again";
+                            font-size: 11.5px;
+                            color: #8E8E93;
+                            vertical-alignment: center;
+                            TouchArea { clicked => { root.dont-show-again = !root.dont-show-again; root.dont-show-changed(root.dont-show-again); } }
+                        }
+                    }
+
+                    // Interactive Accent Drag File Button Pill with Tooltip
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 6px;
+                        background: drag-t.pressed ? #0055B3 :
+                                    drag-t.has-hover ? #0A84FF : #0A84FF20;
+                        border-width: 1px;
+                        border-color: drag-t.has-hover ? #0A84FF : #0A84FF55;
+                        drop-shadow-blur: drag-t.has-hover ? 10px : 0px;
+                        drop-shadow-color: #0A84FF66;
+                        animate background { duration: 120ms; }
+                        animate border-color { duration: 120ms; }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 5px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 12px;
+                                height: 12px;
+                                y: (parent.height - self.height) / 2;
+                                Icon {
+                                    source: @image-url("../icons/folder.svg");
+                                    width: 12px;
+                                    height: 12px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: drag-t.has-hover ? #FFFFFF : #64D2FF;
+                                }
+                            }
+
+                            Text {
+                                text: "Drag / Reveal";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: drag-t.has-hover ? #FFFFFF : #64D2FF;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        drag-t := TouchArea {
+                            mouse-cursor: grab;
+                            clicked => {
+                                root.start-drag(root.task-id);
+                                root.closed();
+                            }
+                        }
+
+                        // Hover tooltip
+                        if drag-t.has-hover: Rectangle {
+                            x: -70px;
+                            y: -28px;
+                            height: 22px;
+                            border-radius: 4px;
+                            background: #242428;
+                            border-width: 1px;
+                            border-color: #44444C;
+                            drop-shadow-blur: 10px;
+                            drop-shadow-color: #000000dd;
+                            z: 100;
+
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                alignment: center;
+                                Text {
+                                    text: "Drag or click to reveal in Explorer";
+                                    font-size: 10px;
+                                    font-weight: 500;
+                                    color: #FFFFFF;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

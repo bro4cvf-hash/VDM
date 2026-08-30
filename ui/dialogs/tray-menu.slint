@@ -1,0 +1,127 @@
+import { Icon } from "../components/icon.slint";
+
+// ── Tray menu row with pop-out hover animation ──
+component TrayItem inherits Rectangle {
+    in property <string> label: "";
+    in property <image> icon-src;
+    in property <color> tint: #98989D;
+    callback clicked();
+
+    height: 36px;
+    border-radius: 8px;
+    background: touch.pressed ? #2C2C32 :
+                touch.has-hover ? #242429 : transparent;
+    border-width: 1px;
+    border-color: touch.has-hover ? #36363E : transparent;
+    x: touch.has-hover ? 3px : 0px;
+    animate background { duration: 120ms; easing: ease-out; }
+    animate border-color { duration: 120ms; easing: ease-out; }
+    animate x { duration: 140ms; easing: cubic-bezier(0.3, 1.3, 0.4, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        alignment: start;
+
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+
+            Icon {
+                source: root.icon-src;
+                width: 15px;
+                height: 15px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: touch.has-hover ? #FFFFFF : root.tint;
+                animate tint { duration: 120ms; }
+            }
+        }
+
+        Text {
+            text: root.label;
+            font-size: 12.5px;
+            font-weight: touch.has-hover ? 600 : 500;
+            color: touch.has-hover ? #FFFFFF : #D1D1D6;
+            vertical-alignment: center;
+            animate color { duration: 120ms; }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// ════════════════════════════════════════════════
+// Tray menu — Compact modern dark-glass panel
+// ════════════════════════════════════════════════
+export component TrayMenu inherits Window {
+    width: 180px;
+    height: 185px;
+    no-frame: true;
+    background: transparent;
+    always-on-top: true;
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in-out property <bool> open: false;
+    callback item(string);
+    callback dismissed();
+
+    // clicks that land inside the window but off the panel dismiss it
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Rectangle {
+        x: 6px;
+        width: parent.width - 12px;
+        height: root.open ? 165px : 2px;
+        y: parent.height - 10px - self.height;
+        border-radius: 12px;
+        background: #18181B;
+        border-width: 1px;
+        border-color: #2E2E34;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000cc;
+        clip: true;
+        opacity: root.open ? 1 : 0;
+        animate height { duration: 180ms; easing: cubic-bezier(0.3, 1.2, 0.4, 1); }
+        animate opacity { duration: 120ms; easing: ease-out; }
+
+        VerticalLayout {
+            padding: 6px;
+            spacing: 3px;
+
+            TrayItem {
+                label: "Open VDM";
+                icon-src: @image-url("../icons/folder.svg");
+                tint: #98989D;
+                clicked => { root.item("open"); }
+            }
+
+            TrayItem {
+                label: "Resume All";
+                icon-src: @image-url("../icons/play.svg");
+                tint: #30D158;
+                clicked => { root.item("resume-all"); }
+            }
+
+            TrayItem {
+                label: "Pause All";
+                icon-src: @image-url("../icons/pause.svg");
+                tint: #FF9F0A;
+                clicked => { root.item("pause-all"); }
+            }
+
+            TrayItem {
+                label: "Quit VDM";
+                icon-src: @image-url("../icons/x.svg");
+                tint: #FF453A;
+                clicked => { root.item("quit"); }
+            }
+        }
+    }
+}

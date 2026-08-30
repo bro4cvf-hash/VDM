@@ -1,0 +1,730 @@
+import { BrowserItem } from "../types.slint";
+import { Icon } from "../components/icon.slint";
+import { CaptionBtn, SettingsTabBtn } from "../components/buttons.slint";
+import { SwitchRow, StepperControl } from "../components/inputs.slint";
+// ════════════════════════════════════════════════
+// Settings & Browser Integration Dialog (Modern Minimalist)
+// ════════════════════════════════════════════════
+export component SettingsDialog inherits Window {
+    width: 580px;
+    height: 500px;
+    no-frame: true;
+    background: transparent;
+    title: "Settings & Browser Integration";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in property <[BrowserItem]> browsers;
+    in-out property <int> active-tab: 0;
+    in-out property <bool> intercept-browser: true;
+    in-out property <bool> clipboard-sniffer: true;
+    in-out property <bool> show-info-modal: true;
+    in-out property <int> max-active: 3;
+    in-out property <int> max-connections: 8;
+    in-out property <float> speed-limit-mbps: 0;
+
+    callback install-extension(string);
+    callback download-browser(string);
+    callback open-extension-folder();
+    callback set-max-active(int);
+    callback set-max-connections(int);
+    callback set-speed-limit(float);
+    callback closed();
+    callback drag-window();
+
+    Rectangle {
+        width: 560px;
+        height: 480px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 14px;
+        background: #1E1E20;
+        border-width: 1px;
+        border-color: #2E2E32;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000cc;
+
+        VerticalLayout {
+            // ── Title Bar ──
+            Rectangle {
+                height: 42px;
+                background: #161618;
+                border-top-left-radius: 14px;
+                border-top-right-radius: 14px;
+
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: #242427;
+                }
+
+                TouchArea {
+                    moved => { root.drag-window(); }
+                }
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 12px;
+                    spacing: 12px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 6px;
+                            background: #0A84FF22;
+
+                            Icon {
+                                source: @image-url("../icons/settings.svg");
+                                width: 14px;
+                                height: 14px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: #64D2FF;
+                            }
+                        }
+
+                        Text {
+                            text: "Settings & Preferences";
+                            font-size: 13.5px;
+                            font-weight: 700;
+                            color: #FFFFFF;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    CaptionBtn {
+                        glyph: "✕";
+                        danger: true;
+                        clicked => { root.closed(); }
+                    }
+                }
+            }
+
+            // ── Main Body ──
+            VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+
+                // ── Segmented Tab Bar with Centered Apple Spring Indicator ──
+                Rectangle {
+                    height: 36px;
+                    border-radius: 8px;
+                    background: #141416;
+
+                    // Springy sliding selection indicator pill - exact button geometry
+                    Rectangle {
+                        x: root.active-tab == 0 ? s-tab0.x : (root.active-tab == 1 ? s-tab1.x : s-tab2.x);
+                        y: 2px;
+                        width: root.active-tab == 0 ? s-tab0.width : (root.active-tab == 1 ? s-tab1.width : s-tab2.width);
+                        height: parent.height - 4px;
+                        border-radius: 6px;
+                        background: #252528;
+                        animate x { duration: 280ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
+                        animate width { duration: 280ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
+                    }
+
+                    HorizontalLayout {
+                        padding: 2px;
+                        spacing: 0px;
+
+                        s-tab0 := SettingsTabBtn {
+                            text: "Browsers";
+                            icon-src: @image-url("../icons/globe.svg");
+                            active: root.active-tab == 0;
+                            horizontal-stretch: 1;
+                            clicked => { root.active-tab = 0; }
+                        }
+
+                        s-tab1 := SettingsTabBtn {
+                            text: "General & Capture";
+                            icon-src: @image-url("../icons/zap.svg");
+                            active: root.active-tab == 1;
+                            horizontal-stretch: 1;
+                            clicked => { root.active-tab = 1; }
+                        }
+
+                        s-tab2 := SettingsTabBtn {
+                            text: "Queue & Speed";
+                            icon-src: @image-url("../icons/cpu.svg");
+                            active: root.active-tab == 2;
+                            horizontal-stretch: 1;
+                            clicked => { root.active-tab = 2; }
+                        }
+                    }
+                }
+
+                // ── Tab 0: Browsers & Extensions ──
+                if root.active-tab == 0: VerticalLayout {
+                    spacing: 12px;
+
+                    // Instructions Card
+                    Rectangle {
+                        border-radius: 8px;
+                        background: #0A84FF12;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 14px;
+                                height: 14px;
+                                y: (parent.height - self.height) / 2;
+                                Icon {
+                                    source: @image-url("../icons/check.svg");
+                                    width: 14px;
+                                    height: 14px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #64D2FF;
+                                }
+                            }
+
+                            Text {
+                                text: "1. Open chrome://extensions  •  2. Turn on 'Developer mode' (top right)  •  3. Click 'Load unpacked' and choose the VDM extension folder.";
+                                font-size: 11px;
+                                color: #D1D1D6;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Browsers List Container (Clean Minimalist Column Layout)
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #141416;
+
+                        VerticalLayout {
+                            padding: 6px;
+                            spacing: 4px;
+
+                            for b in root.browsers: Rectangle {
+                                height: 42px;
+                                border-radius: 7px;
+                                background: b-t.has-hover ? #1D1D21 : #18181B;
+                                animate background { duration: 120ms; }
+
+                                b-t := TouchArea {}
+
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 10px;
+                                    spacing: 12px;
+                                    alignment: center;
+
+                                    // Col 1: Icon + Browser Name
+                                    HorizontalLayout {
+                                        width: 160px;
+                                        spacing: 10px;
+                                        alignment: start;
+
+                                        Rectangle {
+                                            width: 16px;
+                                            height: 16px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: @image-url("../icons/globe.svg");
+                                                width: 16px;
+                                                height: 16px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                tint: b.running ? #30D158 : (b.installed ? #0A84FF : #5C5C60);
+                                            }
+                                        }
+
+                                        Text {
+                                            text: b.name;
+                                            font-size: 12.5px;
+                                            font-weight: 500;
+                                            color: b.installed ? #FFFFFF : #8E8E93;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    // Col 2: Status Badge (Always fixed width 96px, perfectly column-aligned)
+                                    Rectangle {
+                                        width: 96px;
+                                        height: 22px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 11px;
+                                        background: b.running ? #30D15818 :
+                                                    b.installed ? #0A84FF18 : #242428;
+
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            alignment: center;
+
+                                            Rectangle {
+                                                width: 5px;
+                                                height: 5px;
+                                                y: (parent.height - self.height) / 2;
+                                                border-radius: 2.5px;
+                                                background: b.running ? #30D158 :
+                                                            b.installed ? #0A84FF : #68686C;
+                                            }
+
+                                            Text {
+                                                text: b.running ? "Active" :
+                                                      b.installed ? "Installed" : "Not Found";
+                                                font-size: 10.5px;
+                                                font-weight: 600;
+                                                color: b.running ? #30D158 :
+                                                       b.installed ? #64D2FF : #8E8E93;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    // Spacer
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    // Col 3: Action Button (Always fixed width 126px, right-aligned, vertically centered)
+                                    if b.installed: Rectangle {
+                                        width: 126px;
+                                        height: 28px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 6px;
+                                        background: inst-t.pressed ? #0055B3 :
+                                                    inst-t.has-hover ? #2394FF : #0A84FF;
+                                        animate background { duration: 120ms; }
+
+                                        inst-t := TouchArea {
+                                            clicked => { root.install-extension(b.id); }
+                                        }
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            spacing: 5px;
+
+                                            Rectangle {
+                                                width: 10px;
+                                                height: 10px;
+                                                y: (parent.height - self.height) / 2;
+                                                Icon {
+                                                    source: @image-url("../icons/plus.svg");
+                                                    width: 10px;
+                                                    height: 10px;
+                                                    x: (parent.width - self.width) / 2;
+                                                    y: (parent.height - self.height) / 2;
+                                                    tint: #FFFFFF;
+                                                }
+                                            }
+
+                                            Text {
+                                                text: "Install Extension";
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                color: #FFFFFF;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    if !b.installed: Rectangle {
+                                        width: 126px;
+                                        height: 28px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 6px;
+                                        background: get-t.pressed ? #2A2A2E :
+                                                    get-t.has-hover ? #242428 : #1C1C1F;
+                                        animate background { duration: 120ms; }
+
+                                        get-t := TouchArea {
+                                            clicked => { root.download-browser(b.id); }
+                                        }
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            spacing: 5px;
+
+                                            Rectangle {
+                                                width: 10px;
+                                                height: 10px;
+                                                y: (parent.height - self.height) / 2;
+                                                Icon {
+                                                    source: @image-url("../icons/download.svg");
+                                                    width: 10px;
+                                                    height: 10px;
+                                                    x: (parent.width - self.width) / 2;
+                                                    y: (parent.height - self.height) / 2;
+                                                    tint: #8E8E93;
+                                                }
+                                            }
+
+                                            Text {
+                                                text: "Get Browser";
+                                                font-size: 11px;
+                                                font-weight: 500;
+                                                color: get-t.has-hover ? #FFFFFF : #8E8E93;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Tab 1: General & Capture ──
+                if root.active-tab == 1: VerticalLayout {
+                    spacing: 12px;
+
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #141416;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 4px;
+
+                            SwitchRow {
+                                title: "Intercept browser downloads";
+                                subtitle: "Captures web downloads into VDM multi-threaded engine (:9191)";
+                                checked <=> root.intercept-browser;
+                            }
+
+                            SwitchRow {
+                                title: "Automatic clipboard URL sniffer";
+                                subtitle: "Automatically detects copied download URLs from clipboard";
+                                checked <=> root.clipboard-sniffer;
+                            }
+
+                            SwitchRow {
+                                title: "Show 'Download File Info' modal";
+                                subtitle: "Confirm file details, category, and save location before starting";
+                                checked <=> root.show-info-modal;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #141416;
+
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 6px;
+
+                            Text {
+                                text: "Automatic Category Routing";
+                                font-size: 12.5px;
+                                font-weight: 600;
+                                color: #FFFFFF;
+                            }
+
+                            Text {
+                                text: "Files are automatically organized into standard folders based on extension (Compressed, Programs, Video, Music, Documents, and Pictures).";
+                                font-size: 11px;
+                                color: #8E8E93;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
+                // ── Tab 2: Queue & Speed ──
+                if root.active-tab == 2: VerticalLayout {
+                    spacing: 12px;
+
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #141416;
+
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 16px;
+
+                            // Max Active Downloads
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Max Concurrent Downloads";
+                                        font-size: 12.5px;
+                                        font-weight: 600;
+                                        color: #FFFFFF;
+                                    }
+
+                                    Text {
+                                        text: "Active downloads allowed simultaneously (" + root.max-active + " active)";
+                                        font-size: 10.5px;
+                                        color: #8E8E93;
+                                    }
+                                }
+
+                                StepperControl {
+                                    width: 140px;
+                                    box-width: 76px;
+                                    text-val: root.max-active + "";
+                                    can-decrease: root.max-active > 1;
+                                    can-increase: root.max-active < 32;
+                                    decrease => {
+                                        if root.max-active > 1 {
+                                            root.max-active -= 1;
+                                            root.set-max-active(root.max-active);
+                                        }
+                                    }
+                                    increase => {
+                                        if root.max-active < 32 {
+                                            root.max-active += 1;
+                                            root.set-max-active(root.max-active);
+                                        }
+                                    }
+                                    accepted(s) => {
+                                        let v = Math.round(s.to-float());
+                                        if v >= 1 {
+                                            root.max-active = Math.min(32, Math.max(1, v));
+                                            root.set-max-active(root.max-active);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Threads per Download
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Threads per Download";
+                                        font-size: 12.5px;
+                                        font-weight: 600;
+                                        color: #FFFFFF;
+                                    }
+
+                                    Text {
+                                        text: "Multi-connection acceleration parts (" + root.max-connections + " chunks)";
+                                        font-size: 10.5px;
+                                        color: #8E8E93;
+                                    }
+                                }
+
+                                StepperControl {
+                                    width: 140px;
+                                    box-width: 76px;
+                                    text-val: root.max-connections + "";
+                                    can-decrease: root.max-connections > 1;
+                                    can-increase: root.max-connections < 64;
+                                    decrease => {
+                                        if root.max-connections > 1 {
+                                            root.max-connections -= 1;
+                                            root.set-max-connections(root.max-connections);
+                                        }
+                                    }
+                                    increase => {
+                                        if root.max-connections < 64 {
+                                            root.max-connections += 1;
+                                            root.set-max-connections(root.max-connections);
+                                        }
+                                    }
+                                    accepted(s) => {
+                                        let v = Math.round(s.to-float());
+                                        if v >= 1 {
+                                            root.max-connections = Math.min(64, Math.max(1, v));
+                                            root.set-max-connections(root.max-connections);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Global Speed Limiter
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Global Speed Limit";
+                                        font-size: 12.5px;
+                                        font-weight: 600;
+                                        color: #FFFFFF;
+                                    }
+
+                                    Text {
+                                        text: root.speed-limit-mbps <= 0.01 ? "Unlimited bandwidth" : ("Capped at " + root.speed-limit-mbps + " MB/s");
+                                        font-size: 10.5px;
+                                        color: #8E8E93;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    width: 200px;
+                                    spacing: 6px;
+                                    alignment: end;
+
+                                    StepperControl {
+                                        width: 140px;
+                                        box-width: 76px;
+                                        text-val: root.speed-limit-mbps <= 0.01 ? "Max" : (root.speed-limit-mbps + " MB/s");
+                                        can-decrease: root.speed-limit-mbps > 0.01;
+                                        can-increase: root.speed-limit-mbps < 500.0;
+                                        decrease => {
+                                            if root.speed-limit-mbps <= 1.0 {
+                                                root.speed-limit-mbps = 0;
+                                            } else if root.speed-limit-mbps <= 10.0 {
+                                                root.speed-limit-mbps -= 1.0;
+                                            } else if root.speed-limit-mbps <= 50.0 {
+                                                root.speed-limit-mbps -= 5.0;
+                                            } else {
+                                                root.speed-limit-mbps -= 10.0;
+                                            }
+                                            root.set-speed-limit(root.speed-limit-mbps);
+                                        }
+                                        increase => {
+                                            if root.speed-limit-mbps < 0.01 {
+                                                root.speed-limit-mbps = 1.0;
+                                            } else if root.speed-limit-mbps < 10.0 {
+                                                root.speed-limit-mbps += 1.0;
+                                            } else if root.speed-limit-mbps < 50.0 {
+                                                root.speed-limit-mbps += 5.0;
+                                            } else {
+                                                root.speed-limit-mbps += 10.0;
+                                            }
+                                            root.set-speed-limit(root.speed-limit-mbps);
+                                        }
+                                        accepted(s) => {
+                                            let v = s.to-float();
+                                            if v >= 0 {
+                                                root.speed-limit-mbps = Math.min(500, v);
+                                                root.set-speed-limit(root.speed-limit-mbps);
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 54px;
+                                        height: 32px;
+                                        border-radius: 7px;
+                                        background: root.speed-limit-mbps <= 0.01 ? #0A84FF :
+                                                    unlim-t.pressed ? #2A2A2E :
+                                                    unlim-t.has-hover ? #222226 : #18181B;
+                                        animate background { duration: 120ms; }
+
+                                        unlim-t := TouchArea {
+                                            clicked => {
+                                                root.speed-limit-mbps = 0;
+                                                root.set-speed-limit(0);
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Max";
+                                            font-size: 11.5px;
+                                            font-weight: 600;
+                                            color: root.speed-limit-mbps <= 0.01 ? #FFFFFF : (unlim-t.has-hover ? #FFFFFF : #8E8E93);
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // ── Footer ──
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: space-between;
+
+                    // Left Helper Action
+                    HorizontalLayout {
+                        alignment: start;
+
+                        if root.active-tab == 0: Rectangle {
+                            height: 32px;
+                            border-radius: 7px;
+                            background: fld-touch.pressed ? #2A2A2E :
+                                        fld-touch.has-hover ? #222226 : #18181B;
+                            animate background { duration: 120ms; }
+
+                            fld-touch := TouchArea {
+                                clicked => { root.open-extension-folder(); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Rectangle {
+                                    width: 13px;
+                                    height: 13px;
+                                    y: (parent.height - self.height) / 2;
+                                    Icon {
+                                        source: @image-url("../icons/folder.svg");
+                                        width: 13px;
+                                        height: 13px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: #98989D;
+                                    }
+                                }
+
+                                Text {
+                                    text: "Open Extension Folder";
+                                    font-size: 11.5px;
+                                    font-weight: 500;
+                                    color: #D1D1D6;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Right Done Button
+                    Rectangle {
+                        width: 86px;
+                        height: 32px;
+                        border-radius: 7px;
+                        background: done-touch.pressed ? #0055B3 :
+                                    done-touch.has-hover ? #2394FF : #0A84FF;
+                        drop-shadow-blur: done-touch.has-hover ? 10px : 3px;
+                        drop-shadow-color: #0A84FF55;
+                        animate background { duration: 120ms; }
+
+                        done-touch := TouchArea {
+                            clicked => { root.closed(); }
+                        }
+
+                        Text {
+                            text: "Done";
+                            font-size: 12.5px;
+                            font-weight: 700;
+                            color: #FFFFFF;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VDM Integration</title>
+  <style>
+    :root {
+      --bg: #1E1E1E;
+      --card: #28282A;
+      --border: #3A3A3C;
+      --accent: #0A84FF;
+      --accent-hover: #2394FF;
+      --text: #FFFFFF;
+      --text-muted: #98989D;
+      --green: #30D158;
+      --red: #FF453A;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 14px;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .logo {
+      width: 28px;
+      height: 28px;
+    }
+    .title-box h1 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .title-box p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .status-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 4px;
+      background: var(--text-muted);
+    }
+    .dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.disconnected { background: var(--red); }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-top: 1px solid #2C2C2E;
+    }
+    .toggle-label {
+      font-size: 12px;
+      color: #E5E5EA;
+    }
+    /* Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #3A3A3C;
+      transition: .2s;
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(16px); }
+    .footer {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img class="logo" src="icons/icon48.png" alt="VDM">
+    <div class="title-box">
+      <h1>VDM Downloader</h1>
+      <p>Browser Integration</p>
+    </div>
+  </div>
+
+  <div class="status-card">
+    <span style="font-size: 12px; color: var(--text-muted);">Status:</span>
+    <div class="status-badge" id="statusBadge">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Checking...</span>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <span class="toggle-label">Capture Downloads</span>
+    <label class="switch">
+      <input type="checkbox" id="interceptToggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="footer">
+    VDM High-Speed Integration v1.0
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

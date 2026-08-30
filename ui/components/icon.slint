@@ -1,0 +1,76 @@
+// SVG icon (white strokes in /icons, tinted via colorize)
+export component Icon inherits Image {
+    in property <color> tint: #98989D;
+    colorize: tint;
+    vertical-stretch: 0;
+    horizontal-stretch: 0;
+}
+
+// ── Icon-only toolbar button with delayed premium tooltip ──
+export component ToolIcon inherits Rectangle {
+    in property <image> icon-src;
+    in property <string> tip-text: "";
+    in property <color> tint: #98989D;
+    in property <bool> danger: false;
+    callback clicked();
+    in-out property <bool> tip;
+
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: touch.pressed ? #3A3A3C : touch.has-hover ? #2C2C2E : transparent;
+    border-width: 1px;
+    border-color: touch.has-hover ? (danger ? #FF453A44 : #48484a) : transparent;
+    animate background { duration: 150ms; easing: ease-out; }
+    animate border-color { duration: 150ms; }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if !self.has-hover { root.tip = false; }
+        }
+    }
+
+    // 0.8s hold before the tooltip appears
+    Timer {
+        interval: 800ms;
+        running: touch.has-hover;
+        triggered => { root.tip = true; }
+    }
+
+    Icon {
+        source: root.icon-src;
+        width: 17px;
+        height: 17px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        tint: danger ? (touch.has-hover ? #ff8077 : #FF6B5E) : (touch.has-hover ? #ffffff : tint);
+        animate tint { duration: 150ms; }
+    }
+
+    // tooltip: fades + rises smoothly after the 0.8s hold
+    Rectangle {
+        width: tip-t.preferred-width + 20px;
+        height: 26px;
+        x: (parent.width - self.width) / 2;
+        y: parent.height + 8px + (root.tip ? 0px : -5px);
+        border-radius: 7px;
+        background: #28282A;
+        border-width: 1px;
+        border-color: #48484a;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000099;
+        opacity: root.tip ? 1 : 0;
+        animate opacity { duration: 200ms; easing: ease-out; }
+        animate y { duration: 200ms; easing: ease-out; }
+
+        tip-t := Text {
+            x: 10px;
+            y: (parent.height - self.height) / 2;
+            text: root.tip-text;
+            font-size: 11px;
+            font-weight: 500;
+            color: #e5e5ea;
+        }
+    }
+}

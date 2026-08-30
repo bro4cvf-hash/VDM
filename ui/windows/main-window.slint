@@ -1,0 +1,1811 @@
+import { ScrollView } from "std-widgets.slint";
+import { DownloadItem } from "../types.slint";
+import { Icon, ToolIcon } from "../components/icon.slint";
+import { CaptionBtn, PrimaryBtn, IconBtn } from "../components/buttons.slint";
+import { Field, SearchField } from "../components/inputs.slint";
+import { Dropdown } from "../components/dropdown.slint";
+import { HeaderCol, ColMenuItem, SideItem, SectionHeader } from "../components/table.slint";
+
+export component AppWindow inherits Window {
+    preferred-width: 1040px;
+    preferred-height: 620px;
+    min-width: 860px;
+    min-height: 520px;
+    no-frame: true;
+    background: transparent;
+    title: "VDM — Download Manager";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+    default-font-size: 13px;
+
+    // ---- state bridged to Rust (do not rename) ----
+    in-out property <[DownloadItem]> downloads: [];
+    in-out property <int> selected-index: -1;
+    in-out property <string> active-filter: "All";
+    in-out property <string> search-text: "";
+    in-out property <float> total-speed: 0;
+    in-out property <string> total-speed-text: "0 KB/s";
+    in-out property <float> speed-limit-mbps: 0;
+    in-out property <int> max-connections: 8;
+    in-out property <int> max-active: 3;
+    in-out property <int> downloading-count: 0;
+    in-out property <int> completed-count: 0;
+    in-out property <int> paused-count: 0;
+    in-out property <int> queued-count: 0;
+    in-out property <int> error-count: 0;
+    in-out property <int> total-count: 0;
+
+    in-out property <int> count-compressed: 0;
+    in-out property <int> count-programs: 0;
+    in-out property <int> count-video: 0;
+    in-out property <int> count-music: 0;
+    in-out property <int> count-documents: 0;
+
+    // ---- confirmation dialog state ----
+    in-out property <bool> show-confirm: false;
+    in-out property <string> confirm-title: "";
+    in-out property <string> confirm-message: "";
+    in-out property <string> confirm-target-id: "";
+    in-out property <string> confirm-action: "";
+    in-out property <bool> confirm-delete-file: false;
+    in-out property <bool> confirm-show-delete-file-option: false;
+
+    // ---- column customization state ----
+    in-out property <bool> show-col-size: true;
+    in-out property <bool> show-col-progress: true;
+    in-out property <bool> show-col-status: true;
+    in-out property <bool> show-col-eta: true;
+    in-out property <bool> show-col-date: true;
+    in-out property <bool> show-col-menu: false;
+    in-out property <length> col-menu-x: 750px;
+    in-out property <length> col-menu-y: 68px;
+
+    // ---- column width & resizing state ----
+    in-out property <length> col-filename-width: 280px;
+    in-out property <length> col-size-width: 95px;
+    in-out property <length> col-progress-width: 125px;
+    in-out property <length> col-status-width: 85px;
+    in-out property <length> col-eta-width: 80px;
+    in-out property <length> col-date-width: 105px;
+
+    // ---- sorting state ----
+    in-out property <string> sort-column: "date";
+    in-out property <bool> sort-asc: false;
+
+    // ---- download details / link recovery modal state ----
+    in-out property <bool> show-details-modal: false;
+    in-out property <string> details-id: "";
+    in-out property <string> details-filename: "";
+    in-out property <string> details-url: "";
+    in-out property <string> details-referrer: "";
+    in-out property <string> details-status: "";
+    in-out property <string> details-error: "";
+    in-out property <string> details-new-url: "";
+
+    // ---- window controls ----
+    in-out property <bool> is-maximized: false;
+    callback drag-window();
+    callback close-window();
+    callback minimize-window();
+    callback maximize-window();
+    callback resize-window(string);
+    callback open-add();
+    callback open-settings();
+
+    // ---- download callbacks ----
+    callback pause-download(string);
+    callback resume-download(string);
+    callback remove-download(string, bool);
+    callback pause-all();
+    callback resume-all();
+    callback clear-completed();
+    callback set-speed-limit(float);
+    callback set-max-connections(int);
+    callback set-max-active(int);
+    callback open-file(string);
+    callback open-folder(string);
+    callback copy-url(string);
+    callback filter-changed(string);
+    callback search-changed(string);
+    callback row-clicked(int, bool, bool);
+    callback select-all-items();
+    callback resume-selected();
+    callback pause-selected();
+    callback remove-selected(bool);
+    callback sort-changed(string, bool);
+    callback update-download-url(string, string);
+    callback open-browser-url(string);
+    callback renew-download(string);
+
+    in-out property <int> selected-count: 0;
+    in-out property <string> first-selected-id: "";
+    in-out property <string> first-selected-filename: "";
+
+    function handle-sort-click(col: string) {
+        if root.sort-column == col {
+            root.sort-asc = !root.sort-asc;
+        } else {
+            root.sort-column = col;
+            root.sort-asc = (col == "filename" || col == "status");
+        }
+        root.sort-changed(root.sort-column, root.sort-asc);
+    }
+
+    function open-details(item: DownloadItem) {
+        root.details-id = item.id;
+        root.details-filename = item.filename;
+        root.details-url = item.url;
+        root.details-referrer = item.referrer != "" ? item.referrer : "—";
+        root.details-status = item.status;
+        root.details-error = item.error_msg;
+        root.details-new-url = item.url;
+        root.show-details-modal = true;
+    }
+
+    function type-src(t: string) -> image {
+        return t == "archive" ? @image-url("../icons/archive.svg") :
+               t == "installer" ? @image-url("../icons/cpu.svg") :
+               t == "video" ? @image-url("../icons/film.svg") :
+               t == "audio" ? @image-url("../icons/music.svg") :
+               t == "document" ? @image-url("../icons/file2.svg") :
+               t == "image" ? @image-url("../icons/image.svg") :
+               @image-url("../icons/file.svg");
+    }
+    function type-tint(t: string) -> color {
+        return t == "archive" ? #FF9F0A :
+               t == "installer" ? #BF5AF2 :
+               t == "video" ? #64D2FF :
+               t == "audio" ? #FF453A :
+               t == "document" ? #64D2FF :
+               t == "image" ? #30D158 : #98989D;
+    }
+    function status-text(s: string) -> string {
+        return s == "completed" ? "Complete" :
+               s == "downloading" ? "Active" :
+               s == "paused" ? "Paused" :
+               s == "queued" ? "Queued" :
+               s == "error" ? "Error" : "Connecting";
+    }
+    function status-color(s: string) -> color {
+        return s == "completed" ? #30D158 :
+               s == "downloading" ? #64D2FF :
+               s == "paused" ? #FF9F0A :
+               s == "queued" ? #BF5AF2 :
+               s == "error" ? #FF453A : #98989D;
+    }
+    function limit-selected() -> int {
+        if speed-limit-mbps == 0 { return 0; }
+        if speed-limit-mbps <= 2.01 { return 1; }
+        if speed-limit-mbps <= 5.01 { return 2; }
+        if speed-limit-mbps <= 10.01 { return 3; }
+        if speed-limit-mbps <= 20.01 { return 4; }
+        return 5;
+    }
+    function threads-selected() -> int {
+        if max-connections <= 1 { return 0; }
+        if max-connections <= 4 { return 1; }
+        if max-connections <= 8 { return 2; }
+        if max-connections <= 16 { return 3; }
+        return 4;
+    }
+    function queue-selected() -> int {
+        if max-active <= 1 { return 0; }
+        if max-active <= 2 { return 1; }
+        if max-active <= 3 { return 2; }
+        if max-active <= 5 { return 3; }
+        if max-active <= 10 { return 4; }
+        if max-active <= 16 { return 5; }
+        return 6;
+    }
+    // y offset of the sliding sidebar indicator per filter (relative to the sidebar)
+    // geometry: pad 6 + hdr 16 + sp 10 -> status items at 32 + i*34
+    function side-y(f: string) -> length {
+        if f == "Downloading" { return 66px; }
+        if f == "Completed" { return 100px; }
+        if f == "Paused" { return 134px; }
+        if f == "Queued" { return 168px; }
+        if f == "Error" { return 202px; }
+        if f == "cat:compressed" { return 270px; }
+        if f == "cat:installer" { return 304px; }
+        if f == "cat:video" { return 338px; }
+        if f == "cat:audio" { return 372px; }
+        if f == "cat:document" { return 406px; }
+        return 32px;
+    }
+
+    // seamless: one flat #1E1E1E canvas
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: root.is-maximized ? 0px : 12px;
+        background: #1E1E1E;
+        border-width: root.is-maximized ? 0px : 1px;
+        border-color: #3A3A3C;
+        clip: true;
+
+        // Global background click to unfocus inputs
+        TouchArea {
+            clicked => { search-box.clear-focus(); }
+        }
+
+        // ══════════════════════════════════════════
+        // WORKSPACE — starts below the 48px header.
+        // Painted FIRST so header tooltips overlay it.
+        // ══════════════════════════════════════════
+        HorizontalLayout {
+            x: 0;
+            y: 48px;
+            width: 100%;
+            height: parent.height - 48px;
+            padding: 0;
+            spacing: 0;
+
+            // ── Sidebar ──
+            Rectangle {
+                width: 190px;
+
+                // springy sliding selection indicator — same height as the hover row
+                Rectangle {
+                    x: 10px;
+                    width: 170px;
+                    height: 32px;
+                    y: root.side-y(root.active-filter);
+                    border-radius: 6px;
+                    background: @linear-gradient(180deg, #2394FF, #0A84FF);
+                    drop-shadow-blur: 10px;
+                    drop-shadow-color: #0A84FF66;
+                    animate y { duration: 420ms; easing: cubic-bezier(0.3, 1.4, 0.4, 1); }
+                }
+
+                VerticalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 6px;
+                    padding-bottom: 12px;
+                    spacing: 10px;
+
+                    SectionHeader { text: "STATUS"; }
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        SideItem {
+                            label: "All";
+                            icon-src: @image-url("../icons/folder.svg");
+                            icon-nudge: -1px;
+                            count: root.total-count;
+                            is-active: root.active-filter == "All";
+                            tint: #98989D;
+                            clicked => { search-box.clear-focus(); root.active-filter = "All"; root.filter-changed("All"); }
+                        }
+                        SideItem {
+                            label: "Downloading";
+                            icon-src: @image-url("../icons/zap.svg");
+                            icon-nudge: 1px;
+                            count: root.downloading-count;
+                            is-active: root.active-filter == "Downloading";
+                            tint: #64D2FF;
+                            clicked => { search-box.clear-focus(); root.active-filter = "Downloading"; root.filter-changed("Downloading"); }
+                        }
+                        SideItem {
+                            label: "Completed";
+                            icon-src: @image-url("../icons/check.svg");
+                            count: root.completed-count;
+                            is-active: root.active-filter == "Completed";
+                            tint: #30D158;
+                            clicked => { search-box.clear-focus(); root.active-filter = "Completed"; root.filter-changed("Completed"); }
+                        }
+                        SideItem {
+                            label: "Paused";
+                            icon-src: @image-url("../icons/pause.svg");
+                            icon-nudge: 1px;
+                            count: root.paused-count;
+                            is-active: root.active-filter == "Paused";
+                            tint: #FF9F0A;
+                            clicked => { search-box.clear-focus(); root.active-filter = "Paused"; root.filter-changed("Paused"); }
+                        }
+                        SideItem {
+                            label: "Queued";
+                            icon-src: @image-url("../icons/clock.svg");
+                            icon-nudge: 1px;
+                            count: root.queued-count;
+                            is-active: root.active-filter == "Queued";
+                            tint: #BF5AF2;
+                            clicked => { search-box.clear-focus(); root.active-filter = "Queued"; root.filter-changed("Queued"); }
+                        }
+                        SideItem {
+                            label: "Error";
+                            icon-src: @image-url("../icons/alert.svg");
+                            count: root.error-count;
+                            is-active: root.active-filter == "Error";
+                            tint: #FF453A;
+                            clicked => { search-box.clear-focus(); root.active-filter = "Error"; root.filter-changed("Error"); }
+                        }
+                    }
+
+                    SectionHeader { text: "CATEGORIES"; }
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        SideItem {
+                            label: "Compressed";
+                            icon-src: @image-url("../icons/archive.svg");
+                            count: root.count-compressed;
+                            is-active: root.active-filter == "cat:compressed";
+                            tint: #FF9F0A;
+                            clicked => { search-box.clear-focus(); root.active-filter = "cat:compressed"; root.filter-changed("cat:compressed"); }
+                        }
+                        SideItem {
+                            label: "Programs";
+                            icon-src: @image-url("../icons/cpu.svg");
+                            count: root.count-programs;
+                            is-active: root.active-filter == "cat:installer";
+                            tint: #BF5AF2;
+                            clicked => { search-box.clear-focus(); root.active-filter = "cat:installer"; root.filter-changed("cat:installer"); }
+                        }
+                        SideItem {
+                            label: "Video";
+                            icon-src: @image-url("../icons/film.svg");
+                            icon-nudge: -1px;
+                            count: root.count-video;
+                            is-active: root.active-filter == "cat:video";
+                            tint: #64D2FF;
+                            clicked => { search-box.clear-focus(); root.active-filter = "cat:video"; root.filter-changed("cat:video"); }
+                        }
+                        SideItem {
+                            label: "Music";
+                            icon-src: @image-url("../icons/music.svg");
+                            icon-nudge: -1px;
+                            count: root.count-music;
+                            is-active: root.active-filter == "cat:audio";
+                            tint: #FF453A;
+                            clicked => { search-box.clear-focus(); root.active-filter = "cat:audio"; root.filter-changed("cat:audio"); }
+                        }
+                        SideItem {
+                            label: "Documents";
+                            icon-src: @image-url("../icons/file2.svg");
+                            count: root.count-documents;
+                            is-active: root.active-filter == "cat:document";
+                            tint: #64D2FF;
+                            clicked => { search-box.clear-focus(); root.active-filter = "cat:document"; root.filter-changed("cat:document"); }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+
+            // ── List area ──
+            Rectangle {
+                horizontal-stretch: 1;
+
+                VerticalLayout {
+                    padding: 0;
+                    spacing: 0;
+
+                    // Column headers
+                    header-bar := Rectangle {
+                        height: 30px;
+
+                        TouchArea {
+                            pointer-event(pe) => {
+                                if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.mouse-x + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            spacing: 8px;
+
+                            HeaderCol {
+                                text: "FILE NAME";
+                                col-id: "filename";
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                col-width: root.col-filename-width;
+                                is-flex: true;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-filename-width = Math.max(120px, Math.min(1200px, root.col-filename-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+                            if root.show-col-size: HeaderCol {
+                                text: "SIZE";
+                                col-id: "size";
+                                col-width: root.col-size-width;
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-size-width = Math.max(60px, Math.min(300px, root.col-size-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+                            if root.show-col-progress: HeaderCol {
+                                text: "PROGRESS";
+                                col-id: "progress";
+                                col-width: root.col-progress-width;
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-progress-width = Math.max(80px, Math.min(350px, root.col-progress-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+                            if root.show-col-status: HeaderCol {
+                                text: "STATUS";
+                                col-id: "status";
+                                col-width: root.col-status-width;
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-status-width = Math.max(60px, Math.min(250px, root.col-status-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+
+
+                            if root.show-col-eta: HeaderCol {
+                                text: "REMAINING";
+                                col-id: "eta";
+                                col-width: root.col-eta-width;
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-eta-width = Math.max(50px, Math.min(250px, root.col-eta-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+                            if root.show-col-date: HeaderCol {
+                                text: "DATE";
+                                col-id: "date";
+                                col-width: root.col-date-width;
+                                active-sort: root.sort-column;
+                                sort-asc: root.sort-asc;
+                                can-resize: true;
+                                sort-clicked(id) => { root.handle-sort-click(id); }
+                                resized(delta) => {
+                                    root.col-date-width = Math.max(70px, Math.min(300px, root.col-date-width + delta));
+                                }
+                                context-menu(offset) => {
+                                    root.col-menu-x = Math.max(16px, Math.min(root.width - 205px, self.x + offset + 180px));
+                                    root.col-menu-y = 68px;
+                                    root.show-col-menu = true;
+                                }
+                            }
+
+                            Rectangle {
+                                width: 136px;
+
+                                HorizontalLayout {
+                                    alignment: end;
+
+                                    Rectangle {
+                                        width: 22px;
+                                        height: 22px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 5px;
+                                        background: col-btn-touch.has-hover ? #252528 : transparent;
+                                        animate background { duration: 120ms; }
+
+                                        Icon {
+                                            source: @image-url("../icons/layers.svg");
+                                            width: 12px;
+                                            height: 12px;
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                            tint: root.show-col-menu ? #64D2FF : col-btn-touch.has-hover ? #ffffff : #7C7C80;
+                                        }
+
+                                        col-btn-touch := TouchArea {
+                                            clicked => {
+                                                search-box.clear-focus();
+                                                root.col-menu-x = root.width - 205px;
+                                                root.col-menu-y = 68px;
+                                                root.show-col-menu = !root.show-col-menu;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollView {
+                        vertical-stretch: 1;
+
+                        if downloads.length == 0: Rectangle {
+                            TouchArea {
+                                clicked => { search-box.clear-focus(); }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 10px;
+
+                                HorizontalLayout {
+                                    alignment: center;
+
+                                    Rectangle {
+                                        width: 56px;
+                                        height: 56px;
+                                        border-radius: 28px;
+                                        background: #28282A;
+                                        border-width: 1px;
+                                        border-color: #3A3A3C;
+                                        drop-shadow-blur: 18px;
+                                        drop-shadow-color: #0A84FF55;
+
+                                        Icon {
+                                            source: @image-url("../icons/download.svg");
+                                            width: 24px;
+                                            height: 24px;
+                                            tint: #64D2FF;
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "No Downloads";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f5f5f7;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Paste a link or click Add URL to start.";
+                                    font-size: 13px;
+                                    color: #98989D;
+                                    horizontal-alignment: center;
+                                }
+
+                                HorizontalLayout {
+                                    alignment: center;
+                                    padding-top: 8px;
+
+                                    PrimaryBtn {
+                                        width: 110px;
+                                        text: "Add URL";
+                                        icon-src: @image-url("../icons/plus.svg");
+                                        has-icon: true;
+                                        clicked => { search-box.clear-focus(); root.open-add(); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if downloads.length > 0: VerticalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 8px;
+                            padding-bottom: 24px;
+                            spacing: 3px;
+
+                            for item[idx] in downloads: Rectangle {
+                                height: 38px;
+                                border-radius: 8px;
+                                background: (idx == root.selected-index || item.selected) ? #2C2C2E :
+                                            row-touch.has-hover ? #242426 : transparent;
+                                border-width: 1px;
+                                border-color: (idx == root.selected-index || item.selected) ? #3A3A3C : transparent;
+                                animate background { duration: 130ms; easing: ease-out; }
+                                animate border-color { duration: 130ms; }
+
+                                row-touch := TouchArea {
+                                    pointer-event(pe) => {
+                                        if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left {
+                                            search-box.clear-focus();
+                                            root.row-clicked(idx, pe.modifiers.shift, pe.modifiers.control);
+                                        } else if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right {
+                                            search-box.clear-focus();
+                                            root.open-details(item);
+                                        }
+                                    }
+                                    double-clicked => {
+                                        search-box.clear-focus();
+                                        if item.status == "completed" {
+                                            root.open-file(item.id);
+                                        } else if item.status == "error" {
+                                            root.open-details(item);
+                                        } else if item.status == "downloading" {
+                                            root.pause-download(item.id);
+                                        } else {
+                                            root.resume-download(item.id);
+                                        }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: 4px;
+                                    padding-right: 4px;
+                                    spacing: 8px;
+
+                                    // Col 1: Icon + Filename (Flexible)
+                                    HorizontalLayout {
+                                        horizontal-stretch: 1;
+                                        min-width: Math.max(120px, root.col-filename-width);
+                                        spacing: 8px;
+                                        alignment: start;
+
+                                        Rectangle {
+                                            width: 18px;
+                                            height: 18px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: root.type-src(item.file_type);
+                                                width: 16px;
+                                                height: 16px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                tint: root.type-tint(item.file_type);
+                                            }
+                                        }
+
+                                        Text {
+                                            text: item.filename;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            color: #f5f5f7;
+                                            overflow: elide;
+                                            horizontal-stretch: 1;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    // Col 2: Size
+                                    if root.show-col-size: Text {
+                                        text: item.size;
+                                        width: root.col-size-width;
+                                        font-size: 12px;
+                                        color: #98989D;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Col 3: Progress
+                                    if root.show-col-progress: HorizontalLayout {
+                                        width: root.col-progress-width;
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            height: 5px;
+                                            y: (parent.height - self.height) / 2;
+                                            background: #3A3A3C;
+                                            border-radius: 3px;
+                                            clip: true;
+
+                                            if (item.status == "downloading" || item.status == "connecting") && item.progress <= 0.0: Rectangle {
+                                                x: 0;
+                                                y: 0;
+                                                width: parent.width;
+                                                height: parent.height;
+                                                border-radius: 3px;
+                                                background: @linear-gradient(90deg, #0A84FF44, #64D2FF, #0A84FF44);
+                                            }
+
+                                            if item.progress > 0.0 || item.status == "completed": Rectangle {
+                                                x: 0;
+                                                y: 0;
+                                                width: parent.width * (Math.max(0.0, Math.min(100.0, item.progress)) / 100);
+                                                height: parent.height;
+                                                border-radius: 3px;
+                                                background: item.status == "downloading" ? @linear-gradient(90deg, #0A84FF, #64D2FF) :
+                                                            root.status-color(item.status);
+                                                animate width { duration: 250ms; easing: ease-out; }
+                                            }
+                                        }
+
+                                        Text {
+                                            width: 36px;
+                                            text: item.progress-text;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: #c7c7cc;
+                                            horizontal-alignment: end;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    // Col 4: Status dot + label
+                                    if root.show-col-status: HorizontalLayout {
+                                        width: root.col-status-width;
+                                        spacing: 6px;
+                                        alignment: start;
+
+                                        Rectangle {
+                                            width: 8px;
+                                            Rectangle {
+                                                width: 6px;
+                                                height: 6px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                border-radius: 3px;
+                                                background: root.status-color(item.status);
+                                            }
+                                        }
+
+                                        Text {
+                                            text: root.status-text(item.status);
+                                            font-size: 12px;
+                                            font-weight: 500;
+                                            color: root.status-color(item.status);
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+
+
+                                    // Col 6: Remaining ETA
+                                    if root.show-col-eta: Text {
+                                        text: item.status == "completed" ? "—" : (item.eta != "" ? item.eta : "—");
+                                        width: root.col-eta-width;
+                                        font-size: 12px;
+                                        color: #7C7C80;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Col 7: Date Added
+                                    if root.show-col-date: Text {
+                                        text: item.date_text != "" ? item.date_text : "—";
+                                        width: root.col-date-width;
+                                        font-size: 11.5px;
+                                        color: #8E8E93;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Col 8: Row actions
+                                    HorizontalLayout {
+                                        width: 136px;
+                                        spacing: 4px;
+                                        alignment: end;
+
+                                        if item.status == "completed": Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/open.svg");
+                                                tip-text: "Open File";
+                                                tint: #30D158;
+                                                clicked => { root.open-file(item.id); }
+                                            }
+                                        }
+                                        if item.status == "downloading" || item.status == "connecting": Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/pause.svg");
+                                                tip-text: "Pause";
+                                                tint: #FF9F0A;
+                                                clicked => { root.pause-download(item.id); }
+                                            }
+                                        }
+                                        if item.status == "paused" || item.status == "queued": Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/play.svg");
+                                                tip-text: "Resume";
+                                                tint: #64D2FF;
+                                                clicked => { root.resume-download(item.id); }
+                                            }
+                                        }
+                                        if item.status == "error": Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/alert.svg");
+                                                tip-text: "Error Details & Links";
+                                                tint: #FF453A;
+                                                clicked => { root.open-details(item); }
+                                            }
+                                        }
+                                        Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/folder.svg");
+                                                tip-text: "Open Folder";
+                                                tint: #FF9F0A;
+                                                clicked => { root.open-folder(item.id); }
+                                            }
+                                        }
+                                        Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/copy.svg");
+                                                tip-text: "Details & Links";
+                                                tint: #98989D;
+                                                clicked => { root.open-details(item); }
+                                            }
+                                        }
+                                        Rectangle {
+                                            width: 28px;
+                                            IconBtn {
+                                                x: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                icon-src: @image-url("../icons/x.svg");
+                                                tip-text: "Delete";
+                                                tint: #7C7C80;
+                                                danger: true;
+                                                clicked => {
+                                                    root.confirm-title = "Delete Download";
+                                                    root.confirm-message = "Are you sure you want to delete \"" + item.filename + "\"?";
+                                                    root.confirm-target-id = item.id;
+                                                    root.confirm-action = "delete";
+                                                    root.confirm-show-delete-file-option = true;
+                                                    root.confirm-delete-file = false;
+                                                    root.show-confirm = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Status bar — speed at bottom right + dropdowns
+                    Rectangle {
+                        height: 32px;
+
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            alignment: center;
+
+                            Text {
+                                text: root.total-count + " files";
+                                font-size: 11px;
+                                color: #98989D;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.downloading-count + " active";
+                                font-size: 11px;
+                                color: #64D2FF;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.completed-count + " done";
+                                font-size: 11px;
+                                color: #30D158;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            Dropdown {
+                                label: "Limit";
+                                value: root.speed-limit-mbps == 0 ? "Max" : Math.round(root.speed-limit-mbps * 10) / 10 + " MB/s";
+                                options: ["Max", "2 MB/s", "5 MB/s", "10 MB/s", "20 MB/s", "50 MB/s", "Custom…"];
+                                selected: root.limit-selected();
+                                select(i) => {
+                                    if i == 0 { root.speed-limit-mbps = 0; }
+                                    if i == 1 { root.speed-limit-mbps = 2; }
+                                    if i == 2 { root.speed-limit-mbps = 5; }
+                                    if i == 3 { root.speed-limit-mbps = 10; }
+                                    if i == 4 { root.speed-limit-mbps = 20; }
+                                    if i == 5 { root.speed-limit-mbps = 50; }
+                                    root.set-speed-limit(root.speed-limit-mbps);
+                                }
+                                custom(v) => {
+                                    root.speed-limit-mbps = Math.max(0.1, v.to-float());
+                                    root.set-speed-limit(root.speed-limit-mbps);
+                                }
+                            }
+
+                            Dropdown {
+                                label: "Threads";
+                                value: root.max-connections + "";
+                                options: ["1", "4", "8", "16", "32", "Custom…"];
+                                selected: root.threads-selected();
+                                select(i) => {
+                                    if i == 0 { root.max-connections = 1; }
+                                    if i == 1 { root.max-connections = 4; }
+                                    if i == 2 { root.max-connections = 8; }
+                                    if i == 3 { root.max-connections = 16; }
+                                    if i == 4 { root.max-connections = 32; }
+                                    root.set-max-connections(root.max-connections);
+                                }
+                                custom(v) => {
+                                    root.max-connections = Math.max(1, Math.round(v.to-float()));
+                                    root.set-max-connections(root.max-connections);
+                                }
+                            }
+
+                            Dropdown {
+                                label: "Queue";
+                                value: root.max-active == 16 ? "All" : root.max-active + "";
+                                options: ["1", "2", "3", "5", "10", "All (16)", "Custom…"];
+                                selected: root.queue-selected();
+                                select(i) => {
+                                    if i == 0 { root.max-active = 1; }
+                                    if i == 1 { root.max-active = 2; }
+                                    if i == 2 { root.max-active = 3; }
+                                    if i == 3 { root.max-active = 5; }
+                                    if i == 4 { root.max-active = 10; }
+                                    if i == 5 { root.max-active = 16; }
+                                    root.set-max-active(root.max-active);
+                                }
+                                custom(v) => {
+                                    root.max-active = Math.max(1, Math.min(16, Math.round(v.to-float())));
+                                    root.set-max-active(root.max-active);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // HEADER — one 48px band: toolbar + caption buttons top-right.
+        // Painted after workspace so tooltips float above it.
+        // ══════════════════════════════════════════
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 48px;
+
+            TouchArea {
+                moved => { if (self.pressed) { root.drag-window(); } }
+                clicked => { search-box.clear-focus(); }
+                double-clicked => { root.maximize-window(); }
+            }
+
+            CaptionBtn { x: parent.width - 126px; y: 7px; height: 34px; glyph: "─"; clicked => { search-box.clear-focus(); root.minimize-window(); } }
+            CaptionBtn { x: parent.width - 84px; y: 7px; height: 34px; glyph: root.is-maximized ? "❐" : "▢"; clicked => { search-box.clear-focus(); root.maximize-window(); } }
+            CaptionBtn { x: parent.width - 42px; y: 7px; height: 34px; glyph: ""; danger: true; clicked => { search-box.clear-focus(); root.close-window(); } }
+
+            HorizontalLayout {
+                x: 0;
+                y: 7px;
+                height: 34px;
+                padding-left: 12px;
+                padding-right: 140px;
+                spacing: 12px;
+
+                // Far Left: Add Button
+                PrimaryBtn {
+                    width: 82px;
+                    text: "Add";
+                    icon-src: @image-url("../icons/plus.svg");
+                    has-icon: true;
+                    clicked => { search-box.clear-focus(); root.open-add(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Middle: Action Tools Pill Island in empty space
+                Rectangle {
+                    height: 34px;
+                    border-radius: 8px;
+                    background: #202024;
+                    border-width: 1px;
+                    border-color: #2E2E34;
+
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 4px;
+                        alignment: center;
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/play.svg");
+                            tip-text: "Resume";
+                            tint: #30D158;
+                            clicked => {
+                                search-box.clear-focus();
+                                if root.selected-count > 1 {
+                                    root.resume-selected();
+                                } else if root.first-selected-id != "" {
+                                    root.resume-download(root.first-selected-id);
+                                } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                                    root.resume-download(root.downloads[root.selected-index].id);
+                                } else {
+                                    root.resume-all();
+                                }
+                            }
+                        }
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/pause.svg");
+                            tip-text: "Pause";
+                            tint: #FF9F0A;
+                            clicked => {
+                                search-box.clear-focus();
+                                if root.selected-count > 1 {
+                                    root.pause-selected();
+                                } else if root.first-selected-id != "" {
+                                    root.pause-download(root.first-selected-id);
+                                } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                                    root.pause-download(root.downloads[root.selected-index].id);
+                                } else {
+                                    root.pause-all();
+                                }
+                            }
+                        }
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/stop.svg");
+                            tip-text: "Pause All";
+                            tint: #FF6B5E;
+                            clicked => { search-box.clear-focus(); root.pause-all(); }
+                        }
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/trash.svg");
+                            tip-text: "Delete Selected";
+                            tint: #FF6B5E;
+                            danger: true;
+                            clicked => {
+                                search-box.clear-focus();
+                                if root.selected-count > 1 {
+                                    root.confirm-title = "Delete " + root.selected-count + " Downloads";
+                                    root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
+                                    root.confirm-target-id = "";
+                                    root.confirm-action = "delete-selected";
+                                    root.confirm-show-delete-file-option = true;
+                                    root.confirm-delete-file = false;
+                                    root.show-confirm = true;
+                                } else if root.first-selected-id != "" {
+                                    root.confirm-title = "Delete Download";
+                                    root.confirm-message = "Are you sure you want to delete \"" + root.first-selected-filename + "\"?";
+                                    root.confirm-target-id = root.first-selected-id;
+                                    root.confirm-action = "delete";
+                                    root.confirm-show-delete-file-option = true;
+                                    root.confirm-delete-file = false;
+                                    root.show-confirm = true;
+                                } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                                    let item = root.downloads[root.selected-index];
+                                    root.confirm-title = "Delete Download";
+                                    root.confirm-message = "Are you sure you want to delete \"" + item.filename + "\"?";
+                                    root.confirm-target-id = item.id;
+                                    root.confirm-action = "delete";
+                                    root.confirm-show-delete-file-option = true;
+                                    root.confirm-delete-file = false;
+                                    root.show-confirm = true;
+                                }
+                            }
+                        }
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/check.svg");
+                            tip-text: "Clear Completed";
+                            tint: #BF5AF2;
+                            clicked => {
+                                search-box.clear-focus();
+                                root.confirm-title = "Clear Completed";
+                                root.confirm-message = "Are you sure you want to remove all completed downloads from the list?";
+                                root.confirm-target-id = "";
+                                root.confirm-action = "clear-completed";
+                                root.confirm-show-delete-file-option = false;
+                                root.confirm-delete-file = false;
+                                root.show-confirm = true;
+                            }
+                        }
+
+                        ToolIcon {
+                            icon-src: @image-url("../icons/settings.svg");
+                            tip-text: "Browser Integration & Settings";
+                            tint: #98989D;
+                            clicked => { search-box.clear-focus(); root.open-settings(); }
+                        }
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Far Right: Search Field
+                search-box := SearchField {
+                    text <=> root.search-text;
+                    edited(text) => { root.search-changed(text); }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // CONFIRMATION DIALOG MODAL OVERLAY
+        // ══════════════════════════════════════════
+        if root.show-confirm: Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            background: #00000088;
+            animate background { duration: 150ms; }
+
+            // Backdrop click handler to dismiss / decline
+            TouchArea {
+                clicked => { root.show-confirm = false; }
+            }
+
+            // Modal card
+            Rectangle {
+                width: 480px;
+                height: root.confirm-show-delete-file-option ? 215px : 185px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: 14px;
+                background: #242426;
+                border-width: 1px;
+                border-color: #3A3A3C;
+                drop-shadow-blur: 40px;
+                drop-shadow-color: #000000cc;
+
+                // Stop backdrop clicks inside the card
+                TouchArea {}
+
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 14px;
+
+                    // Header (Space-between: Title on left, [✕] on top-right)
+                    HorizontalLayout {
+                        spacing: 12px;
+                        height: 32px;
+
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 8px;
+                            background: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A22 : #BF5AF222;
+                            border-width: 1px;
+                            border-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A44 : #BF5AF244;
+
+                            Icon {
+                                source: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? @image-url("../icons/trash.svg") : @image-url("../icons/alert.svg");
+                                width: 16px;
+                                height: 16px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF6B5E : #BF5AF2;
+                            }
+                        }
+
+                        Text {
+                            text: root.confirm-title;
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: #ffffff;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        CaptionBtn {
+                            glyph: "✕";
+                            danger: true;
+                            clicked => { root.show-confirm = false; }
+                        }
+                    }
+
+                    // Message text
+                    Text {
+                        text: root.confirm-message;
+                        font-size: 13px;
+                        color: #d1d1d6;
+                        wrap: word-wrap;
+                        horizontal-alignment: start;
+                    }
+
+                    // Optional "Delete file from disk" checkbox
+                    if root.confirm-show-delete-file-option: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 4px;
+                            background: root.confirm-delete-file ? #FF453A : #2E2E32;
+                            border-width: 1px;
+                            border-color: root.confirm-delete-file ? #FF453A : #48484A;
+                            animate background { duration: 120ms; }
+
+                            TouchArea {
+                                clicked => { root.confirm-delete-file = !root.confirm-delete-file; }
+                            }
+
+                            if root.confirm-delete-file: Icon {
+                                source: @image-url("../icons/check.svg");
+                                width: 10px;
+                                height: 10px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: #ffffff;
+                            }
+                        }
+
+                        Text {
+                            text: "Also delete the file from disk";
+                            font-size: 11.5px;
+                            color: root.confirm-delete-file ? #FF6B5E : #8E8E93;
+                            vertical-alignment: center;
+
+                            TouchArea {
+                                clicked => { root.confirm-delete-file = !root.confirm-delete-file; }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+
+                    // Action Buttons: Decline & Confirm
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+
+                        // Decline / Cancel button
+                        Rectangle {
+                            height: 32px;
+                            min-width: 80px;
+                            border-radius: 7px;
+                            background: dec-touch.pressed ? #3A3A3C :
+                                        dec-touch.has-hover ? #323236 : #28282B;
+                            border-width: 1px;
+                            border-color: dec-touch.has-hover ? #48484A : #3A3A3C;
+                            animate background { duration: 120ms; }
+
+                            dec-touch := TouchArea {
+                                clicked => { root.show-confirm = false; }
+                            }
+
+                            Text {
+                                text: "Decline";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: dec-touch.has-hover ? #ffffff : #d1d1d6;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
+
+                        // Confirm button
+                        Rectangle {
+                            height: 32px;
+                            min-width: 88px;
+                            border-radius: 7px;
+                            background: conf-touch.pressed ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #B3261E : #0055B3) :
+                                        conf-touch.has-hover ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF5247 : #2394FF) :
+                                        ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A : #0A84FF);
+                            drop-shadow-blur: conf-touch.has-hover ? 10px : 2px;
+                            drop-shadow-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A55 : #0A84FF55;
+                            animate background { duration: 120ms; }
+
+                            conf-touch := TouchArea {
+                                clicked => {
+                                    root.show-confirm = false;
+                                    if root.confirm-action == "delete" {
+                                        root.remove-download(root.confirm-target-id, root.confirm-delete-file);
+                                    } else if root.confirm-action == "delete-selected" {
+                                        root.remove-selected(root.confirm-delete-file);
+                                    } else if root.confirm-action == "clear-completed" {
+                                        root.clear-completed();
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? "Confirm Delete" : "Confirm Clear";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: #ffffff;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // COLUMN VISIBILITY MENU OVERLAY
+        // ══════════════════════════════════════════
+        if root.show-col-menu: Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+
+            TouchArea {
+                clicked => { root.show-col-menu = false; }
+            }
+
+            Rectangle {
+                x: root.col-menu-x;
+                y: root.col-menu-y;
+                width: 185px;
+                height: 220px;
+                border-radius: 10px;
+                background: #1C1C1F;
+                border-width: 1px;
+                border-color: #333338;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #000000cc;
+                animate x { duration: 120ms; easing: ease-out; }
+                animate y { duration: 120ms; easing: ease-out; }
+
+                TouchArea {}
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 2px;
+                    alignment: start;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        Text {
+                            text: "CUSTOMIZE COLUMNS";
+                            font-size: 9.5px;
+                            font-weight: 700;
+                            letter-spacing: 0.8px;
+                            color: #7C7C80;
+                        }
+                    }
+
+                    Rectangle { height: 1px; background: #28282C; }
+
+                    ColMenuItem {
+                        text: "File Name";
+                        checked: true;
+                        locked: true;
+                    }
+                    ColMenuItem {
+                        text: "File Size";
+                        checked: root.show-col-size;
+                        toggled => { root.show-col-size = !root.show-col-size; }
+                    }
+                    ColMenuItem {
+                        text: "Progress Bar";
+                        checked: root.show-col-progress;
+                        toggled => { root.show-col-progress = !root.show-col-progress; }
+                    }
+                    ColMenuItem {
+                        text: "Download Status";
+                        checked: root.show-col-status;
+                        toggled => { root.show-col-status = !root.show-col-status; }
+                    }
+                    ColMenuItem {
+                        text: "Time Remaining";
+                        checked: root.show-col-eta;
+                        toggled => { root.show-col-eta = !root.show-col-eta; }
+                    }
+                    ColMenuItem {
+                        text: "Date Added";
+                        checked: root.show-col-date;
+                        toggled => { root.show-col-date = !root.show-col-date; }
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // DOWNLOAD DETAILS & LINK RECOVERY MODAL
+        // ══════════════════════════════════════════
+        if root.show-details-modal: Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            background: #00000088;
+            animate background { duration: 150ms; }
+
+            TouchArea {
+                clicked => { root.show-details-modal = false; }
+            }
+
+            Rectangle {
+                width: 540px;
+                height: root.details-error != "" ? 370px : 320px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: 14px;
+                background: #202023;
+                border-width: 1px;
+                border-color: #38383C;
+                drop-shadow-blur: 40px;
+                drop-shadow-color: #000000cc;
+
+                TouchArea {}
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+
+                    // Header
+                    HorizontalLayout {
+                        spacing: 10px;
+                        height: 28px;
+
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+                            border-radius: 6px;
+                            background: root.details-status == "error" ? #FF453A22 : #0A84FF22;
+
+                            Icon {
+                                source: root.details-status == "error" ? @image-url("../icons/alert.svg") : @image-url("../icons/file.svg");
+                                width: 14px;
+                                height: 14px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: root.details-status == "error" ? #FF6B5E : #64D2FF;
+                            }
+                        }
+
+                        Text {
+                            text: root.details-filename != "" ? root.details-filename : "Download Details";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: #ffffff;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        CaptionBtn {
+                            glyph: "✕";
+                            danger: true;
+                            clicked => { root.show-details-modal = false; }
+                        }
+                    }
+
+                    // Error warning box if errored
+                    if root.details-error != "": Rectangle {
+                        border-radius: 8px;
+                        background: #FF453A18;
+                        border-width: 1px;
+                        border-color: #FF453A44;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            spacing: 8px;
+
+                            Text {
+                                text: "Download Issue: " + root.details-error;
+                                font-size: 11px;
+                                font-weight: 500;
+                                color: #FF8A80;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+
+                    // Download URL Field
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "DOWNLOAD ADDRESS (URL)";
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: #8E8E93;
+                            letter-spacing: 0.5px;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Field {
+                                h: 30px;
+                                font-size: 12px;
+                                radius: 6px;
+                                text <=> root.details-new-url;
+                                horizontal-stretch: 1;
+                            }
+
+                            Rectangle {
+                                width: 78px;
+                                height: 30px;
+                                border-radius: 6px;
+                                background: d-cp.has-hover ? #2E2E32 : #252528;
+                                border-width: 1px;
+                                border-color: #38383C;
+
+                                d-cp := TouchArea {
+                                    clicked => { root.copy-url(root.details-new-url); }
+                                }
+
+                                Text {
+                                    text: "Copy URL";
+                                    font-size: 11.5px;
+                                    font-weight: 500;
+                                    color: #D1D1D6;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+                            }
+                        }
+                    }
+
+                    // Referrer / Source Web Page Field
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "WEB PAGE ADDRESS (SOURCE REFERRER)";
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: #8E8E93;
+                            letter-spacing: 0.5px;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Rectangle {
+                                height: 30px;
+                                border-radius: 6px;
+                                background: #18181A;
+                                border-width: 1px;
+                                border-color: #3A3A3C;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    x: 10px;
+                                    width: parent.width - 20px;
+                                    height: 100%;
+                                    text: root.details-referrer;
+                                    font-size: 12px;
+                                    color: #D1D1D6;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Rectangle {
+                                width: 78px;
+                                height: 30px;
+                                border-radius: 6px;
+                                background: r-cp.has-hover ? #2E2E32 : #252528;
+                                border-width: 1px;
+                                border-color: #38383C;
+
+                                r-cp := TouchArea {
+                                    clicked => {
+                                        if root.details-referrer != "—" && root.details-referrer != "" {
+                                            root.copy-url(root.details-referrer);
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "Copy Page";
+                                    font-size: 11.5px;
+                                    font-weight: 500;
+                                    color: #D1D1D6;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+                            }
+
+                            if root.details-referrer != "—" && root.details-referrer != "": Rectangle {
+                                width: 100px;
+                                height: 30px;
+                                border-radius: 6px;
+                                background: r-op.pressed ? #0055B3 : r-op.has-hover ? #2394FF : #0A84FF;
+                                animate background { duration: 120ms; }
+
+                                r-op := TouchArea {
+                                    clicked => { root.open-browser-url(root.details-referrer); }
+                                }
+
+                                HorizontalLayout {
+                                    alignment: center;
+                                    spacing: 5px;
+
+                                    Icon {
+                                        source: @image-url("../icons/globe.svg");
+                                        width: 12px;
+                                        height: 12px;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: #ffffff;
+                                    }
+
+                                    Text {
+                                        text: "Open Site";
+                                        font-size: 11.5px;
+                                        font-weight: 600;
+                                        color: #ffffff;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+
+                    // Footer Buttons
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+
+                        Rectangle {
+                            height: 32px;
+                            min-width: 76px;
+                            border-radius: 7px;
+                            background: dt-cls.has-hover ? #2E2E32 : #252528;
+                            border-width: 1px;
+                            border-color: #38383C;
+
+                            dt-cls := TouchArea {
+                                clicked => { root.show-details-modal = false; }
+                            }
+
+                            Text {
+                                text: "Close";
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: #D1D1D6;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
+
+                        if root.details-new-url != root.details-url || root.details-status == "error": Rectangle {
+                            height: 32px;
+                            min-width: 136px;
+                            border-radius: 7px;
+                            background: dt-ref.pressed ? #0055B3 : dt-ref.has-hover ? #2394FF : #0A84FF;
+                            drop-shadow-blur: 8px;
+                            drop-shadow-color: #0A84FF55;
+                            animate background { duration: 120ms; }
+
+                            dt-ref := TouchArea {
+                                clicked => {
+                                    root.update-download-url(root.details-id, root.details-new-url);
+                                    root.show-details-modal = false;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                Icon {
+                                    source: @image-url("../icons/refresh.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #ffffff;
+                                }
+
+                                Text {
+                                    text: "Refresh & Retry";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: #ffffff;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Frameless Window Edge & Corner Drag Resize Handles ──
+        if !root.is-maximized: Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+
+            // Top edge
+            TouchArea {
+                x: 8px; y: 0; width: parent.width - 16px; height: 5px;
+                mouse-cursor: row-resize;
+                moved => { if self.pressed { root.resize-window("n"); } }
+            }
+            // Bottom edge
+            TouchArea {
+                x: 8px; y: parent.height - 5px; width: parent.width - 16px; height: 5px;
+                mouse-cursor: row-resize;
+                moved => { if self.pressed { root.resize-window("s"); } }
+            }
+            // Left edge
+            TouchArea {
+                x: 0; y: 8px; width: 5px; height: parent.height - 16px;
+                mouse-cursor: col-resize;
+                moved => { if self.pressed { root.resize-window("w"); } }
+            }
+            // Right edge
+            TouchArea {
+                x: parent.width - 5px; y: 8px; width: 5px; height: parent.height - 16px;
+                mouse-cursor: col-resize;
+                moved => { if self.pressed { root.resize-window("e"); } }
+            }
+            // Top-left corner
+            TouchArea {
+                x: 0; y: 0; width: 8px; height: 8px;
+                mouse-cursor: nwse-resize;
+                moved => { if self.pressed { root.resize-window("nw"); } }
+            }
+            // Top-right corner
+            TouchArea {
+                x: parent.width - 8px; y: 0; width: 8px; height: 8px;
+                mouse-cursor: nesw-resize;
+                moved => { if self.pressed { root.resize-window("ne"); } }
+            }
+            // Bottom-left corner
+            TouchArea {
+                x: 0; y: parent.height - 8px; width: 8px; height: 8px;
+                mouse-cursor: nesw-resize;
+                moved => { if self.pressed { root.resize-window("sw"); } }
+            }
+            // Bottom-right corner
+            TouchArea {
+                x: parent.width - 8px; y: parent.height - 8px; width: 8px; height: 8px;
+                mouse-cursor: nwse-resize;
+                moved => { if self.pressed { root.resize-window("se"); } }
+            }
+        }
+    }
+}

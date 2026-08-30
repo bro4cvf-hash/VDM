@@ -1,0 +1,164 @@
+import { Icon } from "icon.slint";
+import { Field } from "inputs.slint";
+import { PrimaryBtn } from "buttons.slint";
+
+// ── Dropdown (opens upward for the status bar) ──
+export component Dropdown inherits Rectangle {
+    in property <string> label: "";
+    in property <string> value: "";
+    in property <[string]> options;
+    in property <int> selected: -1;
+    in property <bool> enabled: true;
+    callback select(int);
+    callback custom(string);
+    in-out property <bool> open;
+    in-out property <bool> custom-edit: false;
+    in-out property <string> custom-text: "";
+
+    width: btn.width;
+    height: 24px;
+
+    if open: Rectangle {
+        x: -3000px;
+        y: -3000px;
+        width: 6000px;
+        height: 6000px;
+        TouchArea {
+            clicked => { root.open = false; root.custom-edit = false; }
+        }
+    }
+
+    Rectangle {
+        width: Math.max(140px, btn.width);
+        height: root.options.length * 27px + 10px + (root.custom-edit ? 34px : 0px);
+        x: 0;
+        y: -self.height - 8px - (root.open ? 0px : 6px);
+        border-radius: 10px;
+        background: #28282A;
+        border-width: 1px;
+        border-color: #48484a;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000aa;
+        opacity: root.open ? 1 : 0;
+        animate opacity { duration: 160ms; easing: ease-out; }
+        animate y { duration: 160ms; easing: ease-out; }
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 1px;
+
+            for opt[i] in root.options: Rectangle {
+                height: 26px;
+                border-radius: 6px;
+                background: i == root.selected ? #0A84FF :
+                            opt-t.has-hover ? #3A3A3C : transparent;
+                animate background { duration: 120ms; }
+
+                Text {
+                    x: 10px;
+                    text: opt;
+                    font-size: 12px;
+                    font-weight: i == root.selected ? 600 : 400;
+                    color: i == root.selected ? #ffffff : #d1d1d6;
+                    vertical-alignment: center;
+                }
+
+                opt-t := TouchArea {
+                    enabled: root.open;
+                    clicked => {
+                        if opt == "Custom…" {
+                            root.custom-edit = true;
+                        } else {
+                            root.select(i);
+                            root.open = false;
+                        }
+                    }
+                }
+            }
+
+            if root.custom-edit: Rectangle {
+                height: 30px;
+
+                // explicit geometry — the layout let OK overlap the field
+                Field {
+                    x: 0;
+                    y: 2px;
+                    width: parent.width - 44px;
+                    h: 26px;
+                    font-size: 11.5px;
+                    pad-x: 4px;
+                    text-center: true;
+                    placeholder: "Value";
+                    text <=> root.custom-text;
+                    accepted => { root.custom(self.text); root.open = false; }
+                }
+
+                PrimaryBtn {
+                    x: parent.width - 40px;
+                    y: 2px;
+                    width: 40px;
+                    h: 26px;
+                    font-size: 11.5px;
+                    pad-x: 2px;
+                    text: "OK";
+                    clicked => { root.custom(root.custom-text); root.open = false; }
+                }
+            }
+        }
+    }
+
+    btn := Rectangle {
+        width: Math.max(100px, label-t.preferred-width + value-t.preferred-width + 40px);
+        height: 24px;
+        border-radius: 12px;
+        background: root.open ? #3A3A3C : touch.has-hover ? #2C2C2E : #2C2C2E;
+        border-width: 1px;
+        border-color: root.open ? #0A84FF : touch.has-hover ? #48484a : #3A3A3C;
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+
+        HorizontalLayout {
+            padding-left: 11px;
+            padding-right: 9px;
+            spacing: 6px;
+            alignment: center;
+
+            label-t := Text {
+                text: root.label;
+                font-size: 11px;
+                color: #98989D;
+                vertical-alignment: center;
+            }
+
+            value-t := Text {
+                text: root.value;
+                font-size: 11px;
+                font-weight: 600;
+                color: root.open ? #64D2FF : #d1d1d6;
+                animate color { duration: 150ms; }
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                width: 12px;
+
+                Icon {
+                    source: @image-url("../icons/chevron.svg");
+                    width: 10px;
+                    height: 10px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    tint: #98989D;
+                    transform-rotation: root.open ? 180deg : 0deg;
+                    transform-origin: { x: self.width / 2, y: self.height / 2 };
+                    animate transform-rotation { duration: 180ms; easing: ease-out; }
+                }
+            }
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            clicked => { root.open = !root.open; }
+        }
+    }
+}

@@ -1,0 +1,31 @@
+export struct DownloadItem {
+    id: string,
+    filename: string,
+    url: string,
+    referrer: string,
+    status: string,
+    progress: float,
+    progress_text: string,
+    size: string,
+    speed: string,
+    eta: string,
+    date_text: string,
+    file_type: string,
+    category: string,
+    selected: bool,
+    error_msg: string,
+}
+
+
+export struct BrowserItem {
+    id: string,
+    name: string,
+    installed: bool,
+    running: bool,
+}
+
+export struct ChunkInfo {
+    id: int,
+    downloaded: string,
+    status: string,
+}
