@@ -2,8 +2,8 @@ use anyhow::Context;
 use i_slint_backend_winit::WinitWindowAccessor;
 use rfd::FileDialog;
 use slint::{Model, ModelRc, VecModel};
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +37,53 @@ fn logo_rgba(px: u32) -> Option<Vec<u8>> {
             .collect(),
     )
 }
+
+#[derive(Clone, Debug)]
+struct CompletedTaskInfo {
+    id: String,
+    filename: String,
+    total: u64,
+    location: String,
+    url: String,
+}
+
+fn show_next_completed_dialog(
+    queue: &Arc<Mutex<VecDeque<CompletedTaskInfo>>>,
+    dialog: &CompleteDialog,
+    main_window_opt: Option<&slint::Window>,
+    is_showing: &Arc<AtomicBool>,
+) {
+    let next = {
+        let mut q = queue.lock().unwrap();
+        q.pop_front()
+    };
+    if let Some(item) = next {
+        is_showing.store(true, Ordering::Relaxed);
+        dialog.set_task_id(item.id.into());
+        dialog.set_filename(item.filename.clone().into());
+        dialog.set_size(if item.total > 0 { fmt_size(item.total) } else { "Unknown size".into() }.into());
+        dialog.set_total_bytes_text(format!("{} Bytes", item.total).into());
+        dialog.set_location(item.location.into());
+        dialog.set_url(item.url.into());
+        if let Some(img) = engine::sys_icon::get_file_icon_image(&item.filename) {
+            dialog.set_file_icon(img);
+            dialog.set_has_sys_icon(true);
+        } else {
+            dialog.set_has_sys_icon(false);
+        }
+        let _ = dialog.show();
+        center_dialog(main_window_opt, dialog.window(), 490.0, 315.0);
+        dialog.window().with_winit_window(|win| {
+            win.set_window_level(i_slint_backend_winit::winit::window::WindowLevel::AlwaysOnTop);
+            win.set_visible(true);
+            win.focus_window();
+            win.request_user_attention(Some(i_slint_backend_winit::winit::window::UserAttentionType::Critical));
+        });
+    } else {
+        is_showing.store(false, Ordering::Relaxed);
+    }
+}
+
 // center a dialog over the main window (IDM-style) or monitor center if main is hidden
 fn center_over_main(parent: &slint::Window, win: &slint::Window, w: f64, h: f64) {
     parent.with_winit_window(|pw| {
@@ -53,23 +100,38 @@ fn center_over_main(parent: &slint::Window, win: &slint::Window, w: f64, h: f64)
 }
 
 fn center_dialog(parent_opt: Option<&slint::Window>, win: &slint::Window, w: f64, h: f64) {
+    let mut parent_usable = false;
     if let Some(parent) = parent_opt {
-        center_over_main(parent, win, w, h);
-    } else {
-        win.with_winit_window(|winit_win| {
-            if let Some(monitor) = winit_win.current_monitor().or_else(|| winit_win.primary_monitor()) {
-                let scale = monitor.scale_factor();
-                let mon_size = monitor.size();
-                let mon_pos = monitor.position();
-                let x = mon_pos.x as f64 + (mon_size.width as f64 - w * scale) / 2.0;
-                let y = mon_pos.y as f64 + (mon_size.height as f64 - h * scale) / 2.0;
-                let _ = winit_win.set_outer_position(i_slint_backend_winit::winit::dpi::PhysicalPosition::new(
-                    x as i32,
-                    y as i32,
-                ));
+        parent.with_winit_window(|pw| {
+            if pw.is_visible().unwrap_or(false) && !pw.is_minimized().unwrap_or(false) {
+                let pos = pw.outer_position().unwrap_or_default();
+                if pos.x > -10000 && pos.y > -10000 {
+                    parent_usable = true;
+                }
             }
         });
     }
+
+    if parent_usable {
+        if let Some(parent) = parent_opt {
+            center_over_main(parent, win, w, h);
+            return;
+        }
+    }
+
+    win.with_winit_window(|winit_win| {
+        if let Some(monitor) = winit_win.current_monitor().or_else(|| winit_win.primary_monitor()) {
+            let scale = monitor.scale_factor();
+            let mon_size = monitor.size();
+            let mon_pos = monitor.position();
+            let x = mon_pos.x as f64 + (mon_size.width as f64 - w * scale) / 2.0;
+            let y = mon_pos.y as f64 + (mon_size.height as f64 - h * scale) / 2.0;
+            let _ = winit_win.set_outer_position(i_slint_backend_winit::winit::dpi::PhysicalPosition::new(
+                x as i32,
+                y as i32,
+            ));
+        }
+    });
 }
 
 fn open_renew_dialog(
@@ -105,22 +167,6 @@ fn open_renew_dialog(
         win.set_visible(true);
         win.focus_window();
         win.request_user_attention(Some(i_slint_backend_winit::winit::window::UserAttentionType::Critical));
-    });
-}
-
-fn position_pill_bottom_right(win: &slint::Window, w: f64, h: f64) {
-    win.with_winit_window(|winit_win| {
-        if let Some(monitor) = winit_win.current_monitor().or_else(|| winit_win.primary_monitor()) {
-            let scale = monitor.scale_factor();
-            let mon_size = monitor.size();
-            let mon_pos = monitor.position();
-            let x = mon_pos.x as f64 + (mon_size.width as f64 - (w + 24.0) * scale);
-            let y = mon_pos.y as f64 + (mon_size.height as f64 - (h + 50.0) * scale);
-            let _ = winit_win.set_outer_position(i_slint_backend_winit::winit::dpi::PhysicalPosition::new(
-                x as i32,
-                y as i32,
-            ));
-        }
     });
 }
 
@@ -187,6 +233,43 @@ fn fmt_eta(secs: Option<u64>) -> String {
         Some(s) if s > 60 => format!("{}m {}s", s / 60, s % 60),
         Some(s) => format!("{s}s"),
     }
+}
+
+fn get_clipboard_text() -> String {
+    for _ in 0..4 {
+        if let Ok(mut cb) = arboard::Clipboard::new() {
+            if let Ok(text) = cb.get_text() {
+                return text;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    String::new()
+}
+
+fn extract_url_from_clipboard() -> Option<String> {
+    let raw = get_clipboard_text();
+    if raw.is_empty() {
+        return None;
+    }
+    for line in raw.lines() {
+        let trimmed = line.trim().trim_matches(|c: char| {
+            c == '"' || c == '\'' || c == '<' || c == '>' || c == '(' || c == ')' || c == '[' || c == ']'
+        }).trim();
+
+        if trimmed.starts_with("http://")
+            || trimmed.starts_with("https://")
+            || trimmed.starts_with("ftp://")
+            || trimmed.starts_with("sftp://")
+            || trimmed.starts_with("magnet:?")
+        {
+            return Some(trimmed.to_string());
+        }
+        if trimmed.starts_with("www.") && trimmed.contains('.') {
+            return Some(format!("https://{}", trimmed));
+        }
+    }
+    None
 }
 
 fn detect_file_type(filename: &str) -> String {
@@ -558,15 +641,25 @@ impl ProgressRegistry {
 }
 
 fn main() -> anyhow::Result<()> {
+    let is_autostart = std::env::args().any(|arg| {
+        arg == "--autostart"
+            || arg == "--minimized"
+            || arg == "--startup"
+            || arg == "--tray"
+            || arg == "--background"
+    });
+
     // ── Single-Instance Check ──
     // If VDM is already running, notify it to bring its window to front and exit.
     if let Ok(mut stream) = std::net::TcpStream::connect_timeout(
         &format!("127.0.0.1:{}", engine::server::DEFAULT_SERVER_PORT).parse().unwrap(),
         Duration::from_millis(250),
     ) {
-        use std::io::Write;
-        let _ = stream.write_all(b"GET /show HTTP/1.1\r\nHost: 127.0.0.1:9191\r\nConnection: close\r\n\r\n");
-        println!("[VDM] Active instance running on :{} — brought window to front.", engine::server::DEFAULT_SERVER_PORT);
+        if !is_autostart {
+            use std::io::Write;
+            let _ = stream.write_all(b"GET /show HTTP/1.1\r\nHost: 127.0.0.1:9191\r\nConnection: close\r\n\r\n");
+            println!("[VDM] Active instance running on :{} — brought window to front.", engine::server::DEFAULT_SERVER_PORT);
+        }
         return Ok(());
     }
 
@@ -622,6 +715,9 @@ fn main() -> anyhow::Result<()> {
     app.set_speed_limit_mbps(init_speed_mbps);
     app.set_max_connections(init_max_conns);
     app.set_max_active(init_max_active);
+
+    let dbl_action = manager.db.get_kv("double_click_action").unwrap_or_else(|| "open".into());
+    app.set_double_click_action(dbl_action.into());
 
     // shared filter / search / sort state (polled by background thread)
     let filter = Arc::new(Mutex::new(String::from("All")));
@@ -898,6 +994,7 @@ fn main() -> anyhow::Result<()> {
     settings.set_speed_limit_mbps(init_speed_mbps);
     settings.set_max_connections(init_max_conns);
     settings.set_max_active(init_max_active);
+    settings.set_start_at_startup(engine::startup::is_startup_enabled());
 
     // Settings
     let m = manager.clone();
@@ -1034,6 +1131,89 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    let m = manager.clone();
+    app.on_open_file_with(move |id| {
+        if let Some(path) = m.get_task_path(&String::from(id)) {
+            if path.exists() {
+                let path_str = path.to_string_lossy().to_string();
+                let _ = std::process::Command::new("rundll32.exe")
+                    .args(["shell32.dll,OpenAs_RunDLL", &path_str])
+                    .spawn();
+            }
+        }
+    });
+
+    let m = manager.clone();
+    app.on_open_shell_properties(move |id| {
+        if let Some(path) = m.get_task_path(&String::from(id)) {
+            if path.exists() {
+                #[cfg(target_os = "windows")]
+                unsafe {
+                    use std::os::windows::ffi::OsStrExt;
+                    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_INVOKEIDLIST};
+                    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW;
+
+                    let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+                    wide_path.push(0);
+                    let verb: Vec<u16> = "properties\0".encode_utf16().collect();
+
+                    let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
+                    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+                    info.fMask = SEE_MASK_INVOKEIDLIST;
+                    info.lpVerb = verb.as_ptr();
+                    info.lpFile = wide_path.as_ptr();
+                    info.nShow = SW_SHOW;
+
+                    ShellExecuteExW(&mut info);
+                }
+            }
+        }
+    });
+
+    let m = manager.clone();
+    app.on_redownload(move |id| {
+        let _ = m.redownload(&String::from(id));
+    });
+
+    let m = manager.clone();
+    app.on_rename_task(move |id, new_filename, new_dir| {
+        let id_str = String::from(id);
+        let name_str = String::from(new_filename);
+        let dir_str = String::from(new_dir);
+        let dir_opt = if dir_str.trim().is_empty() { None } else { Some(dir_str.as_str()) };
+        let _ = m.rename_task(&id_str, &name_str, dir_opt);
+    });
+
+    app.on_pick_rename_folder(move || {
+        let dialog = rfd::FileDialog::new();
+        if let Some(path) = dialog.pick_folder() {
+            path.to_string_lossy().to_string().into()
+        } else {
+            "".into()
+        }
+    });
+
+    let m = manager.clone();
+    app.on_queue_action(move |id, action| {
+        let id_str = String::from(id);
+        let action_str = String::from(action);
+        match action_str.as_str() {
+            "start" | "top" => {
+                let _ = m.resume(&id_str);
+            }
+            "stop" | "remove" => {
+                let _ = m.pause(&id_str);
+            }
+            _ => {}
+        }
+    });
+
+    let m = manager.clone();
+    app.on_set_double_click_action(move |act| {
+        let act_str = String::from(act);
+        let _ = m.db.set_kv("double_click_action", &act_str);
+    });
+
     // ── System tray (squircle logo, custom morphing menu) ──
     let tray_rgba = logo_rgba(32).context("rasterize tray icon")?;
     let _tray = tray_icon::TrayIconBuilder::new()
@@ -1082,14 +1262,9 @@ fn main() -> anyhow::Result<()> {
 
     let weak_ren_paste = renew_dialog.as_weak();
     renew_dialog.on_paste_clipboard(move || {
-        if let Ok(mut clipboard) = arboard::Clipboard::new() {
-            if let Ok(text) = clipboard.get_text() {
-                let trimmed = text.trim();
-                if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-                    if let Some(d) = weak_ren_paste.upgrade() {
-                        d.set_new_url(trimmed.into());
-                    }
-                }
+        if let Some(url) = extract_url_from_clipboard() {
+            if let Some(d) = weak_ren_paste.upgrade() {
+                d.set_new_url(url.into());
             }
         }
     });
@@ -1251,6 +1426,7 @@ fn main() -> anyhow::Result<()> {
     let weak_app_settings = app.as_weak();
     app.on_open_settings(move || {
         if let Some(s) = weak_settings.upgrade() {
+            s.set_start_at_startup(engine::startup::is_startup_enabled());
             let _ = s.show();
             if let Some(a) = weak_app_settings.upgrade() {
                 center_over_main(a.window(), s.window(), 580.0, 500.0);
@@ -1290,6 +1466,22 @@ fn main() -> anyhow::Result<()> {
         if let Some(s) = weak_settings_close.upgrade() {
             let _ = s.hide();
         }
+    });
+
+    let weak_settings_startup = settings.as_weak();
+    let m_startup = manager.clone();
+    settings.on_set_start_at_startup(move |val| {
+        if let Err(e) = engine::startup::set_startup_enabled(val) {
+            eprintln!("[VDM Startup] Failed to update Windows startup setting: {}", e);
+        }
+        let _ = m_startup.db.set_kv("start_at_startup", if val { "1" } else { "0" });
+        if let Some(s) = weak_settings_startup.upgrade() {
+            s.set_start_at_startup(engine::startup::is_startup_enabled());
+        }
+    });
+
+    settings.on_open_startup_apps(move || {
+        engine::startup::open_windows_startup_settings();
     });
 
     let m = manager.clone();
@@ -1459,7 +1651,7 @@ fn main() -> anyhow::Result<()> {
                                     let _ = dup.show();
 
                                     let main_app = wa.upgrade();
-                                    center_dialog(main_app.as_ref().map(|a| a.window()), dup.window(), 540.0, if is_active { 320.0 } else { 380.0 });
+                                    center_dialog(main_app.as_ref().map(|a| a.window()), dup.window(), 540.0, if is_active { 310.0 } else { 380.0 });
 
                                     dup.window().with_winit_window(|win| {
                                         win.set_window_level(i_slint_backend_winit::winit::window::WindowLevel::AlwaysOnTop);
@@ -1770,16 +1962,7 @@ fn main() -> anyhow::Result<()> {
     let weak_add_parent = app.as_weak();
     app.on_open_add(move || {
         if let Some(d) = weak_info.upgrade() {
-            let clip = arboard::Clipboard::new()
-                .ok()
-                .and_then(|mut c| c.get_text().ok())
-                .unwrap_or_default();
-            let clip = clip.trim().to_string();
-            let url = if clip.starts_with("http://") || clip.starts_with("https://") {
-                clip
-            } else {
-                "".into()
-            };
+            let url = extract_url_from_clipboard().unwrap_or_default();
             let filename = if !url.is_empty() {
                 engine::probe::url_basename(&url).unwrap_or_default()
             } else {
@@ -1924,11 +2107,19 @@ fn main() -> anyhow::Result<()> {
     });
 
     // ── IDM-style Download complete dialog ──
+    let completed_queue: Arc<Mutex<VecDeque<CompletedTaskInfo>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let is_complete_dialog_showing: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
     let m = manager.clone();
     let weak_done_open = done.as_weak();
+    let q_open = completed_queue.clone();
+    let is_showing_open = is_complete_dialog_showing.clone();
+    let weak_app_open = app.as_weak();
     done.on_open_file(move |id| {
         if let Some(d) = weak_done_open.upgrade() {
             let _ = d.hide();
+            let app_opt = weak_app_open.upgrade();
+            show_next_completed_dialog(&q_open, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_open);
         }
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
@@ -1939,9 +2130,14 @@ fn main() -> anyhow::Result<()> {
 
     let m = manager.clone();
     let weak_done_with = done.as_weak();
+    let q_with = completed_queue.clone();
+    let is_showing_with = is_complete_dialog_showing.clone();
+    let weak_app_with = app.as_weak();
     done.on_open_with(move |id| {
         if let Some(d) = weak_done_with.upgrade() {
             let _ = d.hide();
+            let app_opt = weak_app_with.upgrade();
+            show_next_completed_dialog(&q_with, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_with);
         }
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
@@ -1954,9 +2150,14 @@ fn main() -> anyhow::Result<()> {
 
     let m = manager.clone();
     let weak_done_fld = done.as_weak();
+    let q_fld = completed_queue.clone();
+    let is_showing_fld = is_complete_dialog_showing.clone();
+    let weak_app_fld = app.as_weak();
     done.on_open_folder(move |id| {
         if let Some(d) = weak_done_fld.upgrade() {
             let _ = d.hide();
+            let app_opt = weak_app_fld.upgrade();
+            show_next_completed_dialog(&q_fld, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_fld);
         }
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
@@ -1971,9 +2172,14 @@ fn main() -> anyhow::Result<()> {
 
     let m = manager.clone();
     let weak_done_drag_file = done.as_weak();
+    let q_drag_file = completed_queue.clone();
+    let is_showing_drag_file = is_complete_dialog_showing.clone();
+    let weak_app_drag_file = app.as_weak();
     done.on_start_drag(move |id| {
         if let Some(d) = weak_done_drag_file.upgrade() {
             let _ = d.hide();
+            let app_opt = weak_app_drag_file.upgrade();
+            show_next_completed_dialog(&q_drag_file, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_drag_file);
         }
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
@@ -1996,9 +2202,14 @@ fn main() -> anyhow::Result<()> {
     });
 
     let weak_done = done.as_weak();
+    let q_closed = completed_queue.clone();
+    let is_showing_closed = is_complete_dialog_showing.clone();
+    let weak_app_closed = app.as_weak();
     done.on_closed(move || {
         if let Some(d) = weak_done.upgrade() {
             let _ = d.hide();
+            let app_opt = weak_app_closed.upgrade();
+            show_next_completed_dialog(&q_closed, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_closed);
         }
     });
 
@@ -2006,7 +2217,7 @@ fn main() -> anyhow::Result<()> {
     let weak = app.as_weak();
     let selected_ids_for_poll = selected_ids.clone();
     let progress_registry_for_poll = progress_registry.clone();
-    let weak_pill_poll = mini_pill.as_weak();
+    let _weak_pill_poll = mini_pill.as_weak();
 
     // completed tasks known at boot (no popup for old history)
     let completed_seen: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(
@@ -2019,6 +2230,8 @@ fn main() -> anyhow::Result<()> {
             .collect(),
     ));
     let completed_seen = completed_seen.clone();
+    let completed_queue_for_poll = completed_queue.clone();
+    let is_complete_dialog_showing_poll = is_complete_dialog_showing.clone();
     let weak_done_poll = done.as_weak();
 
     std::thread::spawn(move || loop {
@@ -2028,12 +2241,55 @@ fn main() -> anyhow::Result<()> {
         // armed from the complete dialog: shut down the PC once the queue drains
         // (checked before the fingerprint gate so a static state still triggers)
         if SHUTDOWN_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
-            let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued"));
+            let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued" | "processing"));
             let any_done = snaps.iter().any(|s| s.status == "completed");
             if !busy && any_done && SHUTDOWN_ARMED.swap(false, std::sync::atomic::Ordering::Relaxed) {
                 // 30s grace window; `shutdown /a` aborts
                 let _ = std::process::Command::new("shutdown").args(["/s", "/t", "30"]).spawn();
             }
+        }
+
+        // IDM-style: fresh completions push into completion popup queue
+        let mut new_completions: Vec<CompletedTaskInfo> = Vec::new();
+        {
+            let mut seen = completed_seen.lock().unwrap();
+            for s in &snaps {
+                if s.status == "completed" && seen.insert(s.id.clone()) {
+                    let loc = manager_cloned_for_poll
+                        .get_task_path(&s.id)
+                        .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
+                        .unwrap_or_default();
+                    new_completions.push(CompletedTaskInfo {
+                        id: s.id.clone(),
+                        filename: s.filename.clone(),
+                        total: s.total.unwrap_or(0),
+                        location: loc,
+                        url: s.url.clone(),
+                    });
+                }
+            }
+        }
+
+        if !new_completions.is_empty() {
+            let mut q = completed_queue_for_poll.lock().unwrap();
+            for item in new_completions {
+                q.push_back(item);
+            }
+        }
+
+        let should_show_done = !completed_queue_for_poll.lock().unwrap().is_empty()
+            && !is_complete_dialog_showing_poll.load(Ordering::Relaxed);
+        if should_show_done {
+            let q_poll = completed_queue_for_poll.clone();
+            let is_showing_poll = is_complete_dialog_showing_poll.clone();
+            let weak_done = weak_done_poll.clone();
+            let weak_app = weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(d) = weak_done.upgrade() {
+                    let app_opt = weak_app.upgrade();
+                    show_next_completed_dialog(&q_poll, &d, app_opt.as_ref().map(|a| a.window()), &is_showing_poll);
+                }
+            });
         }
 
         let sel_guard = selected_ids_for_poll.lock().unwrap();
@@ -2056,7 +2312,7 @@ fn main() -> anyhow::Result<()> {
 
         // Calculate aggregate metrics across all tasks
         let total_count = snaps.len() as i32;
-        let downloading_count = snaps.iter().filter(|s| s.status == "downloading" || s.status == "connecting").count() as i32;
+        let downloading_count = snaps.iter().filter(|s| s.status == "downloading" || s.status == "connecting" || s.status == "processing").count() as i32;
         let completed_count = snaps.iter().filter(|s| s.status == "completed").count() as i32;
         let paused_count = snaps.iter().filter(|s| s.status == "paused").count() as i32;
         let queued_count = snaps.iter().filter(|s| s.status == "queued").count() as i32;
@@ -2089,19 +2345,35 @@ fn main() -> anyhow::Result<()> {
 
         for (tid, weak_p) in active_dialogs {
             if let Some(s) = snaps.iter().find(|x| x.id == tid) {
+                let is_processing = s.status == "processing";
                 let pct = if let Some(tot) = s.total {
                     if tot > 0 { (s.downloaded as f32 / tot as f32).min(1.0) } else { 0.0 }
                 } else { 0.0 };
                 let pct_str = format!("{:.0}%", pct * 100.0);
-                let speed_str = fmt_speed(s.speed_bps);
-                let eta_str = fmt_eta(s.eta_secs);
+                let speed_str = if is_processing {
+                    "Processing...".into()
+                } else {
+                    fmt_speed(s.speed_bps)
+                };
+                let eta_str = if is_processing {
+                    "A few seconds...".into()
+                } else {
+                    fmt_eta(s.eta_secs)
+                };
                 let dl_str = fmt_size(s.downloaded);
                 let tot_str = s.total.map(fmt_size).unwrap_or_else(|| "—".into());
                 let is_p = s.status == "paused";
                 let is_err = s.status == "error";
                 let is_done = s.status == "completed";
                 let st_text: String = match s.status.as_str() {
-                    "downloading" => "Receiving data...".into(),
+                    "processing" => "Merging audio and video...".into(),
+                    "downloading" => {
+                        if s.downloaded >= s.total.unwrap_or(u64::MAX) && s.total.unwrap_or(0) > 0 {
+                            "Finalizing download...".into()
+                        } else {
+                            "Receiving data...".into()
+                        }
+                    },
                     "paused" => "Paused".into(),
                     "connecting" => "Connecting...".into(),
                     "completed" => "Complete".into(),
@@ -2125,7 +2397,7 @@ fn main() -> anyhow::Result<()> {
                 if !s.segments.is_empty() {
                     for seg in &s.segments {
                         let is_chunk_done = seg.end > seg.start && seg.done >= (seg.end - seg.start);
-                        let status_text = if is_chunk_done || s.status == "completed" {
+                        let status_text = if is_chunk_done || s.status == "completed" || is_processing {
                             "Finished"
                         } else if s.status == "downloading" {
                             "Receiving data..."
@@ -2144,8 +2416,8 @@ fn main() -> anyhow::Result<()> {
                     let count = manager_cloned_for_poll.max_conns.load(std::sync::atomic::Ordering::Relaxed).max(1);
                     let part_size = if count > 0 { s.downloaded / count } else { 0 };
                     for i in 1..=count {
-                        let is_active = (s.status == "downloading" || s.status == "connecting") && i <= 8;
-                        let status_text = if s.status == "completed" {
+                        let is_active = (s.status == "downloading" || s.status == "connecting" || s.status == "processing") && i <= 8;
+                        let status_text = if s.status == "completed" || is_processing {
                             "Finished"
                         } else if is_active {
                             "Receiving data..."
@@ -2221,21 +2493,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        // IDM-style: fresh completions pop the "Download complete" dialog
-        let mut newly: Vec<(String, String, u64, String, String)> = Vec::new();
-        {
-            let mut seen = completed_seen.lock().unwrap();
-            for s in &snaps {
-                if s.status == "completed" && seen.insert(s.id.clone()) {
-                    let loc = manager_cloned_for_poll
-                        .get_task_path(&s.id)
-                        .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
-                        .unwrap_or_default();
-                    newly.push((s.id.clone(), s.filename.clone(), s.total.unwrap_or(0), loc, s.url.clone()));
-                }
-            }
-        }
-
         // Apply sidebar active filter & search query
         let filt = filter_for_poll.lock().unwrap().clone();
         let qry = search_for_poll.lock().unwrap().to_lowercase();
@@ -2251,7 +2508,7 @@ fn main() -> anyhow::Result<()> {
                         return false;
                     }
                 } else if filt != "All" {
-                    if filt == "Downloading" && !(s.status == "downloading" || s.status == "connecting") {
+                    if filt == "Downloading" && !(s.status == "downloading" || s.status == "connecting" || s.status == "processing") {
                         return false;
                     }
                     if filt != "Downloading" && !s.status.eq_ignore_ascii_case(&filt) {
@@ -2305,7 +2562,6 @@ fn main() -> anyhow::Result<()> {
         let sel_count = sel_guard.len() as i32;
 
         let weak2 = weak.clone();
-        let weak_done_poll = weak_done_poll.clone();
         let _ = weak2.upgrade_in_event_loop(move |app| {
             // self-heal maximized state: Win+Up / drag-restore / snap bypass
             // the maximize button, leaving the property (corners, resize
@@ -2332,25 +2588,6 @@ fn main() -> anyhow::Result<()> {
             app.set_count_video(count_video);
             app.set_count_music(count_music);
             app.set_count_documents(count_documents);
-
-            if let Some((id, filename, total, loc, url)) = newly.pop() {
-                if let Some(d) = weak_done_poll.upgrade() {
-                    d.set_task_id(id.into());
-                    d.set_filename(filename.clone().into());
-                    d.set_size(if total > 0 { fmt_size(total) } else { "Unknown size".into() }.into());
-                    d.set_total_bytes_text(format!("{} Bytes", total).into());
-                    d.set_location(loc.into());
-                    d.set_url(url.into());
-                    if let Some(img) = engine::sys_icon::get_file_icon_image(&filename) {
-                        d.set_file_icon(img);
-                        d.set_has_sys_icon(true);
-                    } else {
-                        d.set_has_sys_icon(false);
-                    }
-                    let _ = d.show();
-                    center_over_main(app.window(), d.window(), 500.0, 330.0);
-                }
-            }
         });
     });
 
@@ -2362,7 +2599,11 @@ fn main() -> anyhow::Result<()> {
         app.set_downloads(ModelRc::new(VecModel::from(items)));
     }
 
-    app.show().context("show window")?;
+    if !is_autostart {
+        app.show().context("show window")?;
+    } else {
+        println!("[VDM] Started silently in background / system tray via startup.");
+    }
     // run until explicit quit (close hides to tray; the tray outlives hidden windows)
     slint::run_event_loop_until_quit().context("slint run")?;
     // keep runtime alive until window closes (guard dropped here)

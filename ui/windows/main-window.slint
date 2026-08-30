@@ -5,11 +5,12 @@ import { CaptionBtn, PrimaryBtn, IconBtn } from "../components/buttons.slint";
 import { Field, SearchField } from "../components/inputs.slint";
 import { Dropdown } from "../components/dropdown.slint";
 import { HeaderCol, ColMenuItem, SideItem, SectionHeader } from "../components/table.slint";
+import { ContextMenuItem, ContextMenuSeparator, SubmenuItem } from "../components/context-menu.slint";
 
 export component AppWindow inherits Window {
-    preferred-width: 1040px;
+    preferred-width: 1120px;
     preferred-height: 620px;
-    min-width: 860px;
+    min-width: 900px;
     min-height: 520px;
     no-frame: true;
     background: transparent;
@@ -49,6 +50,30 @@ export component AppWindow inherits Window {
     in-out property <bool> confirm-delete-file: false;
     in-out property <bool> confirm-show-delete-file-option: false;
 
+    // ---- context menu state ----
+    in-out property <bool> show-context-menu: false;
+    in-out property <length> context-menu-x: 200px;
+    in-out property <length> context-menu-y: 100px;
+    in-out property <length> context-menu-origin-x: 200px;
+    in-out property <length> context-menu-origin-y: 100px;
+    in-out property <string> context-id: "";
+    in-out property <string> context-filename: "";
+    in-out property <string> context-status: "";
+    in-out property <string> context-url: "";
+    in-out property <string> context-referrer: "";
+    in-out property <string> context-file-type: "";
+    in-out property <string> context-error-msg: "";
+    in-out property <int> context-submenu: 0; // 0 = none, 1 = queue, 2 = dblclick
+
+    // ---- double click action setting ----
+    in-out property <string> double-click-action: "open"; // "open", "folder", "open-with", "details", "toggle"
+
+    // ---- move / rename dialog state ----
+    in-out property <bool> show-rename-modal: false;
+    in-out property <string> rename-id: "";
+    in-out property <string> rename-filename: "";
+    in-out property <string> rename-folder: "";
+
     // ---- column customization state ----
     in-out property <bool> show-col-size: true;
     in-out property <bool> show-col-progress: true;
@@ -60,12 +85,12 @@ export component AppWindow inherits Window {
     in-out property <length> col-menu-y: 68px;
 
     // ---- column width & resizing state ----
-    in-out property <length> col-filename-width: 280px;
-    in-out property <length> col-size-width: 95px;
-    in-out property <length> col-progress-width: 125px;
-    in-out property <length> col-status-width: 85px;
-    in-out property <length> col-eta-width: 80px;
-    in-out property <length> col-date-width: 105px;
+    in-out property <length> col-filename-width: 240px;
+    in-out property <length> col-size-width: 85px;
+    in-out property <length> col-progress-width: 115px;
+    in-out property <length> col-status-width: 80px;
+    in-out property <length> col-eta-width: 75px;
+    in-out property <length> col-date-width: 95px;
 
     // ---- sorting state ----
     in-out property <string> sort-column: "date";
@@ -102,7 +127,14 @@ export component AppWindow inherits Window {
     callback set-max-connections(int);
     callback set-max-active(int);
     callback open-file(string);
+    callback open-file-with(string);
     callback open-folder(string);
+    callback open-shell-properties(string);
+    callback redownload(string);
+    callback rename-task(string, string, string);
+    callback pick-rename-folder() -> string;
+    callback queue-action(string, string);
+    callback set-double-click-action(string);
     callback copy-url(string);
     callback filter-changed(string);
     callback search-changed(string);
@@ -139,6 +171,61 @@ export component AppWindow inherits Window {
         root.details-error = item.error_msg;
         root.details-new-url = item.url;
         root.show-details-modal = true;
+    }
+
+    function open-details-for-context() {
+        root.details-id = root.context-id;
+        root.details-filename = root.context-filename;
+        root.details-url = root.context-url;
+        root.details-referrer = root.context-referrer != "" ? root.context-referrer : "—";
+        root.details-status = root.context-status;
+        root.details-error = root.context-error-msg;
+        root.details-new-url = root.context-url;
+        root.show-details-modal = true;
+    }
+
+    function open-rename-for-context() {
+        root.rename-id = root.context-id;
+        root.rename-filename = root.context-filename;
+        root.rename-folder = "";
+        root.show-rename-modal = true;
+    }
+
+    function confirm-delete-context() {
+        root.confirm-title = "Delete Download";
+        root.confirm-message = "Are you sure you want to delete \"" + root.context-filename + "\"?";
+        root.confirm-target-id = root.context-id;
+        root.confirm-action = "delete";
+        root.confirm-show-delete-file-option = true;
+        root.confirm-delete-file = false;
+        root.show-confirm = true;
+    }
+
+    function handle-item-double-click(item: DownloadItem) {
+        if root.double-click-action == "folder" {
+            root.open-folder(item.id);
+        } else if root.double-click-action == "details" {
+            root.open-details(item);
+        } else if root.double-click-action == "open-with" {
+            root.open-file-with(item.id);
+        } else if root.double-click-action == "toggle" {
+            if item.status == "downloading" || item.status == "connecting" {
+                root.pause-download(item.id);
+            } else {
+                root.resume-download(item.id);
+            }
+        } else {
+            // default "open"
+            if item.status == "completed" {
+                root.open-file(item.id);
+            } else if item.status == "error" {
+                root.open-details(item);
+            } else if item.status == "downloading" || item.status == "connecting" {
+                root.pause-download(item.id);
+            } else {
+                root.resume-download(item.id);
+            }
+        }
     }
 
     function type-src(t: string) -> image {
@@ -227,6 +314,80 @@ export component AppWindow inherits Window {
         // Global background click to unfocus inputs
         TouchArea {
             clicked => { search-box.clear-focus(); }
+        }
+
+        // Global Keyboard Shortcuts (Ctrl+N, Ctrl+V, Ctrl+M, Delete, Return, Alt+Return, Escape)
+        FocusScope {
+            key-pressed(event) => {
+                if event.modifiers.control && (event.text == "n" || event.text == "N" || event.text == "v" || event.text == "V") {
+                    search-box.clear-focus();
+                    root.open-add();
+                    return accept;
+                } else if event.modifiers.control && (event.text == "m" || event.text == "M") {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.rename-id = item.id;
+                        root.rename-filename = item.filename;
+                        root.rename-folder = "";
+                        root.show-rename-modal = true;
+                        return accept;
+                    }
+                } else if event.text == Key.Delete {
+                    if root.selected-count > 1 {
+                        root.confirm-title = "Delete " + root.selected-count + " Downloads";
+                        root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
+                        root.confirm-target-id = "";
+                        root.confirm-action = "delete-selected";
+                        root.confirm-show-delete-file-option = true;
+                        root.confirm-delete-file = false;
+                        root.show-confirm = true;
+                        return accept;
+                    } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.confirm-title = "Delete Download";
+                        root.confirm-message = "Are you sure you want to delete \"" + item.filename + "\"?";
+                        root.confirm-target-id = item.id;
+                        root.confirm-action = "delete";
+                        root.confirm-show-delete-file-option = true;
+                        root.confirm-delete-file = false;
+                        root.show-confirm = true;
+                        return accept;
+                    }
+                } else if event.text == Key.Return {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        if event.modifiers.alt {
+                            root.open-details(item);
+                        } else {
+                            root.handle-item-double-click(item);
+                        }
+                        return accept;
+                    }
+                } else if event.text == Key.Escape {
+                    if root.show-context-menu {
+                        root.show-context-menu = false;
+                        root.context-submenu = 0;
+                        return accept;
+                    }
+                    if root.show-rename-modal {
+                        root.show-rename-modal = false;
+                        return accept;
+                    }
+                    if root.show-confirm {
+                        root.show-confirm = false;
+                        return accept;
+                    }
+                    if root.show-details-modal {
+                        root.show-details-modal = false;
+                        return accept;
+                    }
+                    if root.show-col-menu {
+                        root.show-col-menu = false;
+                        return accept;
+                    }
+                }
+                return reject;
+            }
         }
 
         // ══════════════════════════════════════════
@@ -516,7 +677,7 @@ export component AppWindow inherits Window {
                             }
 
                             Rectangle {
-                                width: 136px;
+                                width: 124px;
 
                                 HorizontalLayout {
                                     alignment: end;
@@ -552,12 +713,12 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    ScrollView {
+                    list-scroll := ScrollView {
                         vertical-stretch: 1;
 
                         if downloads.length == 0: Rectangle {
                             TouchArea {
-                                clicked => { search-box.clear-focus(); }
+                                clicked => { search-box.clear-focus(); root.show-context-menu = false; }
                             }
 
                             VerticalLayout {
@@ -639,23 +800,35 @@ export component AppWindow inherits Window {
                                     pointer-event(pe) => {
                                         if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left {
                                             search-box.clear-focus();
+                                            root.show-context-menu = false;
+                                            root.context-submenu = 0;
                                             root.row-clicked(idx, pe.modifiers.shift, pe.modifiers.control);
                                         } else if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right {
                                             search-box.clear-focus();
-                                            root.open-details(item);
+                                            root.selected-index = idx;
+                                            root.context-id = item.id;
+                                            root.context-filename = item.filename;
+                                            root.context-status = item.status;
+                                            root.context-url = item.url;
+                                            root.context-referrer = item.referrer;
+                                            root.context-file-type = item.file_type;
+                                            root.context-error-msg = item.error_msg;
+                                            root.context-submenu = 0;
+
+                                            let click-x = 190px + 12px + self.mouse-x;
+                                            let click-y = 48px + 30px + 8px + list-scroll.viewport-y + idx * 41px + self.mouse-y;
+                                            root.context-menu-origin-x = click-x;
+                                            root.context-menu-origin-y = click-y;
+                                            root.context-menu-x = Math.max(195px, Math.min(root.width - 245px, click-x));
+                                            root.context-menu-y = Math.max(52px, Math.min(root.height - 450px, click-y));
+                                            root.show-context-menu = true;
                                         }
                                     }
                                     double-clicked => {
                                         search-box.clear-focus();
-                                        if item.status == "completed" {
-                                            root.open-file(item.id);
-                                        } else if item.status == "error" {
-                                            root.open-details(item);
-                                        } else if item.status == "downloading" {
-                                            root.pause-download(item.id);
-                                        } else {
-                                            root.resume-download(item.id);
-                                        }
+                                        root.show-context-menu = false;
+                                        root.context-submenu = 0;
+                                        root.handle-item-double-click(item);
                                     }
                                 }
 
@@ -792,19 +965,9 @@ export component AppWindow inherits Window {
                                         vertical-alignment: center;
                                     }
 
-                                    // Col 7: Date Added
-                                    if root.show-col-date: Text {
-                                        text: item.date_text != "" ? item.date_text : "—";
-                                        width: root.col-date-width;
-                                        font-size: 11.5px;
-                                        color: #8E8E93;
-                                        overflow: elide;
-                                        vertical-alignment: center;
-                                    }
-
                                     // Col 8: Row actions
                                     HorizontalLayout {
-                                        width: 136px;
+                                        width: 124px;
                                         spacing: 4px;
                                         alignment: end;
 
@@ -1034,19 +1197,9 @@ export component AppWindow inherits Window {
 
                 Rectangle { horizontal-stretch: 1; }
 
-                // Middle: Action Tools Pill Island in empty space
-                Rectangle {
-                    height: 34px;
-                    border-radius: 8px;
-                    background: #202024;
-                    border-width: 1px;
-                    border-color: #2E2E34;
-
-                    HorizontalLayout {
-                        padding-left: 6px;
-                        padding-right: 6px;
-                        spacing: 4px;
-                        alignment: center;
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
 
                         ToolIcon {
                             icon-src: @image-url("../icons/play.svg");
@@ -1150,7 +1303,6 @@ export component AppWindow inherits Window {
                             clicked => { search-box.clear-focus(); root.open-settings(); }
                         }
                     }
-                }
 
                 Rectangle { horizontal-stretch: 1; }
 
@@ -1687,6 +1839,42 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         alignment: end;
 
+                        if root.details-status == "completed": Rectangle {
+                            height: 32px;
+                            min-width: 125px;
+                            border-radius: 7px;
+                            background: dt-prop.has-hover ? #2E2E32 : #252528;
+                            border-width: 1px;
+                            border-color: #38383C;
+
+                            dt-prop := TouchArea {
+                                clicked => {
+                                    root.open-shell-properties(root.details-id);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                Icon {
+                                    source: @image-url("../icons/settings.svg");
+                                    width: 13px;
+                                    height: 13px;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #98989D;
+                                }
+
+                                Text {
+                                    text: "Shell Properties";
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    color: #D1D1D6;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
                         Rectangle {
                             height: 32px;
                             min-width: 76px;
@@ -1751,6 +1939,635 @@ export component AppWindow inherits Window {
             }
         }
 
+        // ══════════════════════════════════════════
+        // MOVE / RENAME MODAL OVERLAY
+        // ══════════════════════════════════════════
+        if root.show-rename-modal: Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            background: #00000088;
+            animate background { duration: 150ms; }
+
+            TouchArea {
+                clicked => { root.show-rename-modal = false; }
+            }
+
+            Rectangle {
+                width: 500px;
+                height: 245px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: 14px;
+                background: #202023;
+                border-width: 1px;
+                border-color: #38383C;
+                drop-shadow-blur: 40px;
+                drop-shadow-color: #000000cc;
+
+                TouchArea {}
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+
+                    // Header
+                    HorizontalLayout {
+                        spacing: 10px;
+                        height: 28px;
+
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+                            border-radius: 6px;
+                            background: #64D2FF22;
+
+                            Icon {
+                                source: @image-url("../icons/edit.svg");
+                                width: 14px;
+                                height: 14px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: #64D2FF;
+                            }
+                        }
+
+                        Text {
+                            text: "Move or Rename Download";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: #ffffff;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        CaptionBtn {
+                            glyph: "✕";
+                            danger: true;
+                            clicked => { root.show-rename-modal = false; }
+                        }
+                    }
+
+                    // Filename Field
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "FILE NAME";
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: #8E8E93;
+                            letter-spacing: 0.5px;
+                        }
+
+                        Field {
+                            h: 30px;
+                            font-size: 12px;
+                            radius: 6px;
+                            text <=> root.rename-filename;
+                        }
+                    }
+
+                    // Destination Folder Field
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "MOVE TO FOLDER (OPTIONAL)";
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: #8E8E93;
+                            letter-spacing: 0.5px;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Field {
+                                h: 30px;
+                                font-size: 12px;
+                                radius: 6px;
+                                text <=> root.rename-folder;
+                                horizontal-stretch: 1;
+                            }
+
+                            Rectangle {
+                                width: 85px;
+                                height: 30px;
+                                border-radius: 6px;
+                                background: ren-brw.has-hover ? #2E2E32 : #252528;
+                                border-width: 1px;
+                                border-color: #38383C;
+
+                                ren-brw := TouchArea {
+                                    clicked => {
+                                        let chosen = root.pick-rename-folder();
+                                        if chosen != "" {
+                                            root.rename-folder = chosen;
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "Browse…";
+                                    font-size: 11.5px;
+                                    font-weight: 500;
+                                    color: #D1D1D6;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+
+                    // Footer Buttons
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+
+                        Rectangle {
+                            height: 32px;
+                            min-width: 76px;
+                            border-radius: 7px;
+                            background: ren-cancel.has-hover ? #2E2E32 : #252528;
+                            border-width: 1px;
+                            border-color: #38383C;
+
+                            ren-cancel := TouchArea {
+                                clicked => { root.show-rename-modal = false; }
+                            }
+
+                            Text {
+                                text: "Cancel";
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: #D1D1D6;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
+
+                        Rectangle {
+                            height: 32px;
+                            min-width: 110px;
+                            border-radius: 7px;
+                            background: ren-save.pressed ? #0055B3 : ren-save.has-hover ? #2394FF : #0A84FF;
+                            drop-shadow-blur: 8px;
+                            drop-shadow-color: #0A84FF55;
+                            animate background { duration: 120ms; }
+
+                            ren-save := TouchArea {
+                                clicked => {
+                                    root.show-rename-modal = false;
+                                    root.rename-task(root.rename-id, root.rename-filename, root.rename-folder);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                Icon {
+                                    source: @image-url("../icons/check.svg");
+                                    width: 12px;
+                                    height: 12px;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: #ffffff;
+                                }
+
+                                Text {
+                                    text: "Save & Apply";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: #ffffff;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // CONTEXT MENU OVERLAY
+        // ══════════════════════════════════════════
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            opacity: root.show-context-menu ? 1 : 0;
+            visible: self.opacity > 0;
+            animate opacity { duration: 120ms; easing: ease-out; }
+
+            TouchArea {
+                enabled: root.show-context-menu;
+                clicked => {
+                    root.show-context-menu = false;
+                    root.context-submenu = 0;
+                }
+                pointer-event(pe) => {
+                    if pe.kind == PointerEventKind.down {
+                        root.show-context-menu = false;
+                        root.context-submenu = 0;
+                    }
+                }
+            }
+
+            // Primary Menu Card (Morphs open directly from cursor coordinate)
+            menu-card := Rectangle {
+                x: root.show-context-menu ? root.context-menu-x : root.context-menu-origin-x;
+                y: root.show-context-menu ? root.context-menu-y : root.context-menu-origin-y;
+                width: root.show-context-menu ? 236px : 0px;
+                height: root.show-context-menu ? 426px : 0px;
+                border-radius: 10px;
+                background: #18181B;
+                border-width: root.show-context-menu ? 1px : 0px;
+                border-color: #2E2E34;
+                drop-shadow-blur: root.show-context-menu ? 28px : 0px;
+                drop-shadow-color: #000000dd;
+                clip: true;
+
+                animate width { duration: 160ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate height { duration: 180ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate x { duration: 160ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate y { duration: 180ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate drop-shadow-blur { duration: 180ms; }
+                animate border-width { duration: 100ms; }
+
+                TouchArea {}
+
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 236px;
+                    height: 426px;
+
+                    VerticalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        padding-top: 6px;
+                        padding-bottom: 6px;
+                        spacing: 1px;
+                        alignment: start;
+
+                        ContextMenuItem {
+                            label: "Open";
+                            icon-src: @image-url("../icons/open.svg");
+                            tint: #30D158;
+                            enabled: root.context-status == "completed";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.open-file(root.context-id);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Open with...";
+                            icon-src: @image-url("../icons/open.svg");
+                            tint: #64D2FF;
+                            enabled: root.context-status == "completed";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.open-file-with(root.context-id);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Open folder";
+                            icon-src: @image-url("../icons/folder.svg");
+                            tint: #FF9F0A;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.open-folder(root.context-id);
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Move/Rename";
+                            icon-src: @image-url("../icons/edit.svg");
+                            tint: #64D2FF;
+                            shortcut: "Ctrl+M";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.open-rename-for-context();
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Redownload";
+                            icon-src: @image-url("../icons/refresh.svg");
+                            tint: #30D158;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.redownload(root.context-id);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Resume Download";
+                            icon-src: @image-url("../icons/play.svg");
+                            tint: #30D158;
+                            enabled: root.context-status == "paused" || root.context-status == "queued" || root.context-status == "error";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.resume-download(root.context-id);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Stop Download";
+                            icon-src: @image-url("../icons/pause.svg");
+                            tint: #FF9F0A;
+                            enabled: root.context-status == "downloading" || root.context-status == "connecting";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.pause-download(root.context-id);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Refresh download address";
+                            icon-src: @image-url("../icons/globe.svg");
+                            tint: #BF5AF2;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.renew-download(root.context-id);
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Remove";
+                            icon-src: @image-url("../icons/trash.svg");
+                            tint: #FF453A;
+                            danger: true;
+                            shortcut: "Del";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.confirm-delete-context();
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Add to queue";
+                            icon-src: @image-url("../icons/clock.svg");
+                            tint: #BF5AF2;
+                            has-submenu: true;
+                            is-active: root.context-submenu == 1;
+                            clicked => {
+                                root.context-submenu = (root.context-submenu == 1 ? 0 : 1);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Delete from queue";
+                            icon-src: @image-url("../icons/stop.svg");
+                            tint: #7C7C80;
+                            enabled: root.context-status == "queued";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.pause-download(root.context-id);
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "On Double click";
+                            icon-src: @image-url("../icons/zap.svg");
+                            tint: #FFD60A;
+                            has-submenu: true;
+                            is-active: root.context-submenu == 2;
+                            clicked => {
+                                root.context-submenu = (root.context-submenu == 2 ? 0 : 2);
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Properties";
+                            icon-src: @image-url("../icons/settings.svg");
+                            tint: #98989D;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.open-details-for-context();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Submenu 1: Add to Queue (Morphs open from parent item)
+            sub1-card := Rectangle {
+                x: (root.context-menu-x + 236px + 180px > root.width) ?
+                    (root.context-submenu == 1 ? root.context-menu-x - 180px : root.context-menu-x) :
+                    (root.context-menu-x + 232px);
+                y: Math.max(52px, Math.min(root.height - 145px, root.context-menu-y + 270px));
+                width: root.context-submenu == 1 ? 175px : 0px;
+                height: root.context-submenu == 1 ? 125px : 0px;
+                opacity: root.context-submenu == 1 ? 1 : 0;
+                border-radius: 9px;
+                background: #18181B;
+                border-width: root.context-submenu == 1 ? 1px : 0px;
+                border-color: #2E2E34;
+                drop-shadow-blur: root.context-submenu == 1 ? 24px : 0px;
+                drop-shadow-color: #000000dd;
+                clip: true;
+
+                animate width { duration: 150ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate height { duration: 160ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate x { duration: 150ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate opacity { duration: 120ms; easing: ease-out; }
+                animate drop-shadow-blur { duration: 160ms; }
+
+                TouchArea {}
+
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 175px;
+                    height: 125px;
+
+                    VerticalLayout {
+                        padding: 5px;
+                        spacing: 1px;
+                        alignment: start;
+
+                        SubmenuItem {
+                            label: "Start Queue";
+                            has-icon: true;
+                            icon-src: @image-url("../icons/play.svg");
+                            tint: #30D158;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.queue-action(root.context-id, "start");
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Stop Queue";
+                            has-icon: true;
+                            icon-src: @image-url("../icons/pause.svg");
+                            tint: #FF9F0A;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.queue-action(root.context-id, "stop");
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Move to Top";
+                            has-icon: true;
+                            icon-src: @image-url("../icons/chevron.svg");
+                            tint: #64D2FF;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.queue-action(root.context-id, "top");
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Remove from Queue";
+                            has-icon: true;
+                            icon-src: @image-url("../icons/stop.svg");
+                            tint: #FF6B5E;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.queue-action(root.context-id, "remove");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Submenu 2: On Double Click (Morphs open from parent item)
+            sub2-card := Rectangle {
+                x: (root.context-menu-x + 236px + 195px > root.width) ?
+                    (root.context-submenu == 2 ? root.context-menu-x - 195px : root.context-menu-x) :
+                    (root.context-menu-x + 232px);
+                y: Math.max(52px, Math.min(root.height - 170px, root.context-menu-y + 335px));
+                width: root.context-submenu == 2 ? 190px : 0px;
+                height: root.context-submenu == 2 ? 155px : 0px;
+                opacity: root.context-submenu == 2 ? 1 : 0;
+                border-radius: 9px;
+                background: #18181B;
+                border-width: root.context-submenu == 2 ? 1px : 0px;
+                border-color: #2E2E34;
+                drop-shadow-blur: root.context-submenu == 2 ? 24px : 0px;
+                drop-shadow-color: #000000dd;
+                clip: true;
+
+                animate width { duration: 150ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate height { duration: 160ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate x { duration: 150ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+                animate opacity { duration: 120ms; easing: ease-out; }
+                animate drop-shadow-blur { duration: 160ms; }
+
+                TouchArea {}
+
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 190px;
+                    height: 155px;
+
+                    VerticalLayout {
+                        padding: 5px;
+                        spacing: 1px;
+                        alignment: start;
+
+                        SubmenuItem {
+                            label: "Open File (Default)";
+                            is-selected: root.double-click-action == "open";
+                            clicked => {
+                                root.double-click-action = "open";
+                                root.set-double-click-action("open");
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Open Folder";
+                            is-selected: root.double-click-action == "folder";
+                            clicked => {
+                                root.double-click-action = "folder";
+                                root.set-double-click-action("folder");
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Open with...";
+                            is-selected: root.double-click-action == "open-with";
+                            clicked => {
+                                root.double-click-action = "open-with";
+                                root.set-double-click-action("open-with");
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Show Properties & Links";
+                            is-selected: root.double-click-action == "details";
+                            clicked => {
+                                root.double-click-action = "details";
+                                root.set-double-click-action("details");
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                            }
+                        }
+
+                        SubmenuItem {
+                            label: "Resume / Pause";
+                            is-selected: root.double-click-action == "toggle";
+                            clicked => {
+                                root.double-click-action = "toggle";
+                                root.set-double-click-action("toggle");
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ── Frameless Window Edge & Corner Drag Resize Handles ──
         if !root.is-maximized: Rectangle {
             x: 0;

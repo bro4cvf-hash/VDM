@@ -8,6 +8,8 @@ fn main() {
         res.set_icon("assets/app.ico");
         res.set("FileDescription", "VDM Downloader");
         res.set("ProductName", "VDM");
+        res.set("CompanyName", "VDM Contributors");
+        res.set("LegalCopyright", "Copyright © 2026 VDM Contributors");
         res.compile().expect("embed windows resources");
     }
 }

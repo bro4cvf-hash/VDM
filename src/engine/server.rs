@@ -185,7 +185,7 @@ impl LoopbackServer {
             let body = serde_json::json!({
                 "status": "ok",
                 "app": "VDM",
-                "version": "0.2.0"
+                "version": "0.3.0"
             })
             .to_string();
 

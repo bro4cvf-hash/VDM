@@ -1,93 +1,146 @@
 <div align="center">
 
-<img src="ui/icons/vdm.svg" width="96" alt="VDM logo"/>
+<img src="ui/icons/vdm.svg" width="88" height="88" alt="VDM Logo" />
 
-# VDM — Download Manager
+# Visk Download Manager (VDM)
 
-**IDM-grade multi-threaded downloads for Windows. Native Rust + Slint — no webview, no Electron, no bloat.**
+**A high-performance, native multi-threaded download manager for Windows.**  
+Built entirely in **Rust** and **Slint UI** — lightning fast, minimal memory footprint, zero webview or Electron bloat.
 
-[![Release](https://img.shields.io/badge/release-v0.2.0-0A84FF?style=flat-square)](../../releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square&logo=windows95&logoColor=white)](../../releases/latest)
+<br/>
+
+[![Release](https://img.shields.io/badge/Release-v0.3.0-0A84FF?style=flat-square)](../../releases/latest)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](../../releases/latest)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Slint](https://img.shields.io/badge/UI-Slint%201.12-8E5CE6?style=flat-square)](https://slint.dev)
-[![License](https://img.shields.io/badge/license-MIT-3FB950?style=flat-square)](LICENSE)
+[![UI](https://img.shields.io/badge/UI-Slint%201.12-8E5CE6?style=flat-square)](https://slint.dev)
+[![License](https://img.shields.io/badge/License-MIT-30D158?style=flat-square)](LICENSE)
 
-<img src="docs/img/app-main.png" width="720" alt="VDM main window"/>
+<br/>
+<br/>
+
+<img src="docs/img/app-main.png" width="860" alt="VDM Main Interface" />
+
+<br/>
+<br/>
 
 </div>
 
-## ✨ Features
+---
 
-- <img src="docs/icons/zap.svg" width="18" valign="middle" alt=""/> **Multi-threaded engine** — up to 32 parallel connections per file with HTTP Range work-stealing and sparse pre-allocation
-- <img src="docs/icons/refresh.svg" width="18" valign="middle" alt=""/> **Resumable everything** — pause, resume, and restart from exact byte positions; chunk state persisted in SQLite so downloads survive crashes and reboots
-- <img src="docs/icons/globe.svg" width="18" valign="middle" alt=""/> **Browser integration** — a companion extension (Chrome / Edge / Brave) intercepts downloads and streams links straight into VDM
-- <img src="docs/icons/dialog.svg" width="18" valign="middle" alt=""/> **IDM-style dialogs** — file info, live per-connection progress, and completion prompts that feel instantly familiar
-- <img src="docs/icons/sliders.svg" width="18" valign="middle" alt=""/> **Speed limiter** — token-bucket throttling from 2 MB/s up to unlimited
-- <img src="docs/icons/archive.svg" width="18" valign="middle" alt=""/> **Smart categories** — video, music, programs, documents, and archives auto-sorted with per-category save folders
-- <img src="docs/icons/list.svg" width="18" valign="middle" alt=""/> **Queue management** — configurable parallel download slots with FIFO queuing
-- <img src="docs/icons/link.svg" width="18" valign="middle" alt=""/> **yt-dlp support** — paste a video URL and VDM delegates to [yt-dlp](https://github.com/yt-dlp/yt-dlp) when it's on PATH
-- <img src="docs/icons/tray.svg" width="18" valign="middle" alt=""/> **Tray-resident** — lives in the system tray with a custom morphing menu; single-instance via loopback API
-- <img src="docs/icons/moon.svg" width="18" valign="middle" alt=""/> **Native dark glass UI** — pure GPU-rendered Slint, crisp at any DPI, ~30 MB installed
+## ⚡ Highlights
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>🚀 Multi-Threaded Acceleration</h4>
+      <p>Up to 32 parallel connections per download using adaptive HTTP Range work-stealing and sparse pre-allocation to maximize network throughput.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>🛡️ Crash-Resilient & Resumable</h4>
+      <p>Automatic byte-level resumption. Chunk progress is continually persisted to SQLite WAL storage, surviving network drops, system reboots, or unexpected restarts.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>🌐 Browser Integration</h4>
+      <p>Seamless one-click integration with Google Chrome, Microsoft Edge, and Brave. Intercepts web downloads automatically and routes them straight into VDM.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>🪟 Windows Startup & System Tray</h4>
+      <p>Lives unobtrusively in your system tray. Features full two-way synchronization with Windows Task Manager and Taskbar Startup Apps for silent background startup.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>📂 Smart Category Routing</h4>
+      <p>Intelligently categorizes files into Video, Music, Documents, Programs, and Compressed archives with customizable destination folders.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>🎬 Media Stream Extraction</h4>
+      <p>Built-in support for capturing media streams and video links with seamless delegation to yt-dlp and ffmpeg for audio/video muxing.</p>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+---
+
+## 🖼️ Interface Showcase
 
 <div align="center">
 
-| Download Info | File Conflict |
-|:---:|:---:|
-| <img src="docs/img/app-info-dialog.png" width="380"/> | <img src="docs/img/app-conflict.png" width="380"/> |
+| Download Info | File Conflict Resolver | Settings & System Startup |
+|:---:|:---:|:---:|
+| <img src="docs/img/app-info-dialog.png" width="280" alt="Download Info Dialog" /> | <img src="docs/img/app-conflict.png" width="280" alt="Conflict Dialog" /> | <img src="docs/img/app-settings.png" width="280" alt="Settings Dialog" /> |
 
 </div>
 
-## 📦 Install
+<br/>
 
-**Option 1 — Installer (recommended)**
+---
 
-Grab `VDM-Setup-x.y.z.exe` from the [latest release](../../releases/latest) and run it. Includes optional desktop icon, Start Menu shortcuts, and a clean uninstaller.
+## 📦 Installation
 
-**Option 2 — From source**
+### Option 1: Official Installer (Recommended)
+
+Download the latest setup package from the [**Releases**](../../releases/latest) page:
+
+- **`VDM-Setup-0.3.0.exe`** — Installs VDM with Start Menu shortcuts, desktop icon, and uninstaller.
+
+### Option 2: Build From Source
 
 ```powershell
+# Clone the repository
 git clone https://github.com/bro4cvf-hash/VDM.git
 cd VDM
+
+# Compile and launch in release mode
 cargo run --release
 ```
 
-> Requires the [Rust toolchain](https://rustup.rs). First build takes a few minutes.
+> **Requirements**: [Rust toolchain](https://rustup.rs) (1.75+).
 
-### Browser extension
+<br/>
 
-1. In VDM, open **Settings → Browser Integration** — VDM extracts the extension and opens the folder for you
-2. Open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**
-3. Click **Load unpacked** and select the `extension` folder
-4. Downloads from the browser now land in VDM 🎉
+---
 
-## 🛠️ Building the installer
+## 🔌 Browser Extension Setup
 
-```powershell
-.\scripts\build-installer.ps1
-# → dist\VDM-Setup-<version>.exe
-```
+1. In VDM, open **Settings → Browser Integration** and click **Install Extension** to reveal the companion extension folder.
+2. Open your browser's extension manager (`chrome://extensions` or `edge://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and select the unpacked `extension` directory.
+4. Browser downloads will now automatically stream directly into VDM.
 
-Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
+<br/>
 
-## 🏗️ Architecture
+---
+
+## 🏗️ Technical Architecture
 
 ```
 VDM/
-├── ui/                     # Slint declarative UI (app window, dialogs, tray menu, theme)
 ├── src/
-│   ├── main.rs             # Window host, tray, poller, UI⇄engine bridge
-│   └── engine/
-│       ├── downloader.rs   # Task lifecycle, snapshot merging, speed stats
-│       ├── worker.rs       # Per-chunk HTTP Range workers, work-stealing
-│       ├── probe.rs        # URL probing (yt-dlp / HTTP headers)
-│       ├── rate_limiter.rs # Token-bucket speed limiter
-│       ├── server.rs       # Loopback API on 127.0.0.1:9191 (single-instance + extension)
-│       └── browser.rs      # Extension extraction & browser detection
-└── storage/database.rs     # SQLite: tasks, chunks, settings kv
+│   ├── main.rs             # Application lifecycle, system tray, Slint event loop & poller
+│   ├── engine/
+│   │   ├── downloader.rs   # Task lifecycle, speed measurement & snapshot computation
+│   │   ├── worker.rs       # HTTP Range chunk workers & work-stealing engine
+│   │   ├── probe.rs        # URL probe headers & format detection
+│   │   ├── rate_limiter.rs # Token-bucket bandwidth throttling
+│   │   ├── startup.rs      # Windows HKCU & StartupApproved registry synchronization
+│   │   ├── server.rs       # Loopback IPC server (127.0.0.1:9191) for single-instance & extension
+│   │   └── browser.rs      # Browser detection & native manifest registration
+│   └── storage/
+│       └── database.rs     # SQLite WAL persistence for tasks, chunks & preferences
+└── ui/                     # Modular Slint UI definitions (Apple HIG dark theme)
 ```
 
-**Stack:** `tokio` · `reqwest` (rustls) · `rusqlite` · `slint` · `tray-icon` · `resvg` · Inno Setup
+**Core Stack:** `Rust 2021` · `Slint UI` · `Tokio` · `Reqwest (rustls)` · `SQLite 3` · `Inno Setup`
+
+<br/>
+
+---
 
 ## 📄 License
 
-[MIT](LICENSE) — © 2026 VDM Contributors
+This project is licensed under the [MIT License](LICENSE) — © 2026 VDM Contributors.

@@ -2,7 +2,7 @@
 ; Build: scripts\build-installer.ps1 (or ISCC installer\vdm.iss after cargo build --release)
 
 #define MyAppName "VDM Downloader"
-#define MyAppVersion GetVersionNumbersString(SourcePath + "\..\target\release\vdm.exe")
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "VDM Contributors"
 #define MyAppExeName "vdm.exe"
 

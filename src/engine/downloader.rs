@@ -147,6 +147,7 @@ pub struct Manager {
     pub statuses: Mutex<HashMap<String, Status>>,
     pub errors: Mutex<HashMap<String, String>>,
     pub last_etas: Mutex<HashMap<String, u64>>,
+    pub post_processing: Mutex<HashMap<String, String>>,
     pumping: AtomicBool,
 }
 
@@ -189,6 +190,7 @@ impl Manager {
             statuses: Mutex::new(statuses),
             errors: Mutex::new(HashMap::new()),
             last_etas: Mutex::new(HashMap::new()),
+            post_processing: Mutex::new(HashMap::new()),
             pumping: AtomicBool::new(false),
         })
     }
@@ -363,6 +365,7 @@ impl Manager {
         self.db.delete_task(id)?;
         self.runs.lock().unwrap().remove(id);
         self.statuses.lock().unwrap().remove(id);
+        self.post_processing.lock().unwrap().remove(id);
         self.pump();
         Ok(())
     }
@@ -373,6 +376,52 @@ impl Manager {
             if t.status == Status::Completed {
                 let _ = self.remove(&t.id, false);
             }
+        }
+        Ok(())
+    }
+
+    pub fn redownload(&self, id: &str) -> anyhow::Result<()> {
+        if let Some(rt) = self.runs.lock().unwrap().get(id) {
+            let _ = rt.cmd_tx.send_replace(Cmd::Stop);
+        }
+        self.runs.lock().unwrap().remove(id);
+        self.post_processing.lock().unwrap().remove(id);
+        self.errors.lock().unwrap().remove(id);
+
+        if let Ok(Some((t, _))) = self.db.get_task(id) {
+            let path = Path::new(&t.dir).join(&t.filename);
+            let _ = fs::remove_file(&path);
+            let _ = self.db.replace_chunks(id, &[]);
+            self.db.set_status(id, Status::Queued)?;
+            self.statuses.lock().unwrap().insert(id.into(), Status::Queued);
+            self.pump();
+        }
+        Ok(())
+    }
+
+    pub fn rename_task(&self, id: &str, new_filename: &str, new_dir: Option<&str>) -> anyhow::Result<()> {
+        let clean_filename = new_filename.trim();
+        if clean_filename.is_empty() {
+            return Ok(());
+        }
+        if let Some(rt) = self.runs.lock().unwrap().get(id) {
+            let _ = rt.cmd_tx.send_replace(Cmd::Pause);
+        }
+        if let Ok(Some((t, _))) = self.db.get_task(id) {
+            let old_dir = t.dir.clone();
+            let old_path = Path::new(&old_dir).join(&t.filename);
+            let target_dir = new_dir.unwrap_or(&old_dir).trim();
+            let final_dir = if target_dir.is_empty() { &old_dir } else { target_dir };
+            let new_path = Path::new(final_dir).join(clean_filename);
+
+            if old_path.exists() && old_path != new_path {
+                if let Some(parent) = new_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::rename(&old_path, &new_path);
+            }
+
+            self.db.update_filename_and_dir(id, clean_filename, final_dir)?;
         }
         Ok(())
     }
@@ -412,6 +461,7 @@ impl Manager {
             .copied()
             .unwrap_or(t.status);
 
+        let is_processing = self.post_processing.lock().unwrap().contains_key(&t.id);
         let mut downloaded = chunks.iter().map(|c| c.done.max(0) as u64).sum();
         let total = (t.total > 0).then_some(t.total as u64);
         if status == Status::Completed {
@@ -439,12 +489,18 @@ impl Manager {
         };
         let error_msg = self.errors.lock().unwrap().get(&t.id).cloned();
 
+        let snap_status = if is_processing && status != Status::Completed && status != Status::Error {
+            "processing".to_string()
+        } else {
+            status_str(status).to_string()
+        };
+
         let mut snap = TaskSnapshot {
             id: t.id.clone(),
             url: t.url.clone(),
             filename: t.filename.clone(),
             dir: t.dir.clone(),
-            status: status_str(status).into(),
+            status: snap_status,
             total,
             downloaded,
             speed_bps: 0,
@@ -555,6 +611,7 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().remove(&id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
         }
+        self.post_processing.lock().unwrap().remove(&id);
         if let Some(msg) = err_text {
             self.db.set_status(&id, Status::Error).ok();
             self.statuses.lock().unwrap().insert(id.clone(), Status::Error);
@@ -593,6 +650,9 @@ impl Manager {
 
         // Special handling for YouTube media extraction:
         // Extract direct HTTPS media stream URLs and pass to VDM's 16-connection native engine!
+        // YouTube DASH returns a video-only and a separate audio stream for most
+        // formats; keep the audio URL so we can mux it in after the video lands.
+        let mut audio_url: Option<String> = None;
         let (actual_url, actual_headers) = if super::ytdl::is_youtube(&row.url) {
             let is_audio = row.filename.to_lowercase().ends_with(".mp3")
                 || row.filename.to_lowercase().ends_with(".m4a");
@@ -605,11 +665,12 @@ impl Manager {
             };
 
             match super::ytdl::extract_direct_stream_urls(&row.url, fmt.as_deref(), is_audio).await {
-                Ok((video_url, _audio_opt)) => {
+                Ok((video_url, audio_opt)) => {
                     let mut yh = super::ytdl::default_youtube_headers();
                     for (k, v) in headers {
                         yh.insert(k, v);
                     }
+                    audio_url = audio_opt;
                     (video_url, yh)
                 }
                 Err(e) => {
@@ -751,7 +812,7 @@ impl Manager {
             task_id: id.to_string(),
             url: actual_url,
             file_path: file_path.to_string_lossy().into_owned(),
-            headers: actual_headers,
+            headers: actual_headers.clone(),
             etag: probed.etag,
             last_modified: probed.last_modified,
             ranged,
@@ -759,6 +820,7 @@ impl Manager {
         };
 
         self.statuses.lock().unwrap().insert(id.into(), Status::Downloading);
+        self.db.set_status(id, Status::Downloading).ok();
         let _ = rt.cmd_tx.send_replace(Cmd::Run);
 
         let n_workers = conns.min(cells.len()).max(1);
@@ -813,9 +875,44 @@ impl Manager {
 
         let known_total = rt.total.load(Ordering::Relaxed);
         let done_sum = rt.sample().downloaded;
-        let completed = !paused_seen && (known_total <= 0 || done_sum >= known_total as u64);
+        let all_cells_done = {
+            let guard = rt.cells.lock().unwrap();
+            !guard.is_empty() && guard.iter().all(|c| c.remaining() == 0)
+        };
+        let completed = !paused_seen && (known_total <= 0 || done_sum >= known_total as u64 || all_cells_done);
 
         if completed {
+            // YouTube DASH serves video-only + separate audio for most formats.
+            // Fetch the audio sidecar and mux it into the finished video, or the
+            // "downloaded" file plays silently.
+            if let Some(audio_url) = audio_url {
+                self.post_processing
+                    .lock()
+                    .unwrap()
+                    .insert(id.into(), "Merging audio & video...".into());
+                let ext = match Path::new(&actual_filename).extension().and_then(|e| e.to_str()) {
+                    Some(e) => e.to_string(),
+                    None => "mp4".to_string(),
+                };
+                let audio_tmp = file_path.with_extension(format!("vdm-audio-tmp"));
+                let mux_out = file_path.with_extension(format!("vdm-mux-tmp.{}", ext));
+                match self.fetch_stream_to_file(&audio_url, &actual_headers, &audio_tmp).await {
+                    Ok(()) => {
+                        match super::ytdl::mux_audio_video(&file_path, &audio_tmp, &mux_out).await {
+                            Ok(()) => {
+                                fs::remove_file(&file_path).ok();
+                                if let Err(e) = fs::rename(&mux_out, &file_path) {
+                                    println!("[VDM] mux rename failed: {e}");
+                                }
+                            }
+                            Err(e) => println!("[VDM] audio mux failed: {e}"),
+                        }
+                        fs::remove_file(&audio_tmp).ok();
+                    }
+                    Err(e) => println!("[VDM] audio fetch failed: {e}"),
+                }
+                self.post_processing.lock().unwrap().remove(id);
+            }
             self.db.set_status(id, Status::Completed)?;
             self.statuses.lock().unwrap().insert(id.into(), Status::Completed);
             println!("[VDM] download complete: {}", row.filename);
@@ -823,6 +920,30 @@ impl Manager {
             self.db.set_status(id, Status::Paused)?;
             self.statuses.lock().unwrap().insert(id.into(), Status::Paused);
         }
+        Ok(())
+    }
+
+    /// Download a small sidecar stream (YouTube audio) to a temp file.
+    async fn fetch_stream_to_file(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        dest: &Path,
+    ) -> anyhow::Result<()> {
+        use std::io::Write;
+        let mut req = self.http.get(url).timeout(Duration::from_secs(60));
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let mut resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("sidecar http {}", resp.status()));
+        }
+        let mut file = std::fs::File::create(dest)?;
+        while let Some(chunk) = resp.chunk().await? {
+            file.write_all(&chunk)?;
+        }
+        file.flush()?;
         Ok(())
     }
 

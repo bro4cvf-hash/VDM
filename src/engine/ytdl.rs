@@ -60,7 +60,12 @@ pub async fn extract_direct_stream_urls(
 ) -> anyhow::Result<(String, Option<String>)> {
     let bin = find_ytdl_binary().ok_or_else(|| anyhow::anyhow!("yt-dlp binary not found"))?;
 
-    let clean_url = if let Some(idx) = youtube_url.find("&itag=") {
+    // Watch URLs embed &itag= as a trailing filter we must drop before letting
+    // yt-dlp pick the format itself; a raw googlevideo URL has &itag= *inside*
+    // its query — truncating there would yield garbage.
+    let clean_url = if youtube_url.contains("googlevideo.com") {
+        youtube_url
+    } else if let Some(idx) = youtube_url.find("&itag=") {
         &youtube_url[..idx]
     } else {
         youtube_url
@@ -122,28 +127,82 @@ pub fn default_youtube_headers() -> HashMap<String, String> {
     h
 }
 
+pub fn find_ffmpeg_binary() -> Option<PathBuf> {
+    // 1. Check next to current exe
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let next_to = parent.join("ffmpeg.exe");
+            if next_to.exists() {
+                return Some(next_to);
+            }
+        }
+    }
+
+    // 2. Check standard PATH lookup
+    if let Ok(output) = std::process::Command::new("where.exe").arg("ffmpeg").output() {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = s.lines().next() {
+                let p = PathBuf::from(first_line.trim());
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    Some(PathBuf::from("ffmpeg"))
+}
+
 pub async fn mux_audio_video(
     video_path: &Path,
     audio_path: &Path,
     output_path: &Path,
 ) -> anyhow::Result<()> {
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y")
-        .arg("-i").arg(video_path)
-        .arg("-i").arg(audio_path)
-        .arg("-c").arg("copy")
-        .arg(output_path);
+    let bin = find_ffmpeg_binary().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    let is_webm = output_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("webm"))
+        .unwrap_or(false);
 
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    // WebM containers require Opus or Vorbis audio. MP4 containers use AAC.
+    let codecs: &[&str] = if is_webm {
+        &["copy", "libopus", "opus", "libvorbis"]
+    } else {
+        &["copy", "aac", "libmp3lame"]
+    };
 
-    let out = cmd.output().await?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow::anyhow!("ffmpeg mux error: {}", err.trim()));
+    let mut last_err = String::new();
+    for audio_codec in codecs {
+        let mut cmd = Command::new(&bin);
+        cmd.arg("-y")
+            .arg("-i").arg(video_path)
+            .arg("-i").arg(audio_path)
+            .arg("-map").arg("0:v:0")
+            .arg("-map").arg("1:a:0")
+            .arg("-c:v").arg("copy")
+            .arg("-c:a").arg(*audio_codec)
+            .arg(output_path);
+
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        let res = tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output()).await;
+        match res {
+            Ok(Ok(out)) => {
+                if out.status.success() {
+                    return Ok(());
+                }
+                last_err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            }
+            Ok(Err(err)) => {
+                last_err = err.to_string();
+            }
+            Err(_) => {
+                last_err = "ffmpeg mux timed out after 60s".to_string();
+            }
+        }
     }
-
-    let _ = std::fs::remove_file(video_path);
-    let _ = std::fs::remove_file(audio_path);
-    Ok(())
+    Err(anyhow::anyhow!("ffmpeg mux error: {}", last_err))
 }

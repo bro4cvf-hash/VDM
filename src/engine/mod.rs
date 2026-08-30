@@ -5,6 +5,7 @@ pub mod file_allocator;
 pub mod probe;
 pub mod rate_limiter;
 pub mod server;
+pub mod startup;
 pub mod sys_icon;
 pub mod worker;
 pub mod ytdl;

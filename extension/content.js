@@ -13,7 +13,7 @@
   const MEDIA_RE = /\.(mp4|m4v|webm|mkv|mov|avi|flv|ogv|ts|3gp|mp3|m4a|aac|wav|ogg|oga|opus|flac|vtt|srt)(?:[?#]|$)/i;
 
   const YT_ITAGS = {
-    // Combined Video + Audio (Progressive) -> hasAudio: true
+    // Progressive & DASH Adaptive streams — VDM automatically fetches and muxes audio into all video formats!
     18: { quality: "360p", ext: "MP4", isAudio: false, hasAudio: true, height: 360 },
     22: { quality: "720p HD", ext: "MP4", isAudio: false, hasAudio: true, height: 720 },
     37: { quality: "1080p Full HD", ext: "MP4", isAudio: false, hasAudio: true, height: 1080 },
@@ -23,42 +23,41 @@
     45: { quality: "720p HD", ext: "WebM", isAudio: false, hasAudio: true, height: 720 },
     46: { quality: "1080p Full HD", ext: "WebM", isAudio: false, hasAudio: true, height: 1080 },
 
-    // Video Only (DASH Adaptive) -> hasAudio: false
-    299: { quality: "1080p HD 60 fps", ext: "MP4", isAudio: false, hasAudio: false, height: 1080 },
-    303: { quality: "1080p HD 60 fps", ext: "WebM", isAudio: false, hasAudio: false, height: 1080 },
-    137: { quality: "1080p Full HD", ext: "MP4", isAudio: false, hasAudio: false, height: 1080 },
-    248: { quality: "1080p Full HD", ext: "WebM", isAudio: false, hasAudio: false, height: 1080 },
-    399: { quality: "1080p Full HD", ext: "MP4", isAudio: false, hasAudio: false, height: 1080 },
+    299: { quality: "1080p HD 60 fps", ext: "MP4", isAudio: false, hasAudio: true, height: 1080 },
+    303: { quality: "1080p HD 60 fps", ext: "WebM", isAudio: false, hasAudio: true, height: 1080 },
+    137: { quality: "1080p Full HD", ext: "MP4", isAudio: false, hasAudio: true, height: 1080 },
+    248: { quality: "1080p Full HD", ext: "WebM", isAudio: false, hasAudio: true, height: 1080 },
+    399: { quality: "1080p Full HD", ext: "MP4", isAudio: false, hasAudio: true, height: 1080 },
 
-    298: { quality: "720p HD 60 fps", ext: "MP4", isAudio: false, hasAudio: false, height: 720 },
-    302: { quality: "720p HD 60 fps", ext: "WebM", isAudio: false, hasAudio: false, height: 720 },
-    136: { quality: "720p HD", ext: "MP4", isAudio: false, hasAudio: false, height: 720 },
-    247: { quality: "720p HD", ext: "WebM", isAudio: false, hasAudio: false, height: 720 },
-    398: { quality: "720p HD", ext: "MP4", isAudio: false, hasAudio: false, height: 720 },
+    298: { quality: "720p HD 60 fps", ext: "MP4", isAudio: false, hasAudio: true, height: 720 },
+    302: { quality: "720p HD 60 fps", ext: "WebM", isAudio: false, hasAudio: true, height: 720 },
+    136: { quality: "720p HD", ext: "MP4", isAudio: false, hasAudio: true, height: 720 },
+    247: { quality: "720p HD", ext: "WebM", isAudio: false, hasAudio: true, height: 720 },
+    398: { quality: "720p HD", ext: "MP4", isAudio: false, hasAudio: true, height: 720 },
 
-    135: { quality: "480p", ext: "MP4", isAudio: false, hasAudio: false, height: 480 },
-    244: { quality: "480p", ext: "WebM", isAudio: false, hasAudio: false, height: 480 },
-    397: { quality: "480p", ext: "MP4", isAudio: false, hasAudio: false, height: 480 },
+    135: { quality: "480p", ext: "MP4", isAudio: false, hasAudio: true, height: 480 },
+    244: { quality: "480p", ext: "WebM", isAudio: false, hasAudio: true, height: 480 },
+    397: { quality: "480p", ext: "MP4", isAudio: false, hasAudio: true, height: 480 },
 
-    134: { quality: "360p", ext: "MP4", isAudio: false, hasAudio: false, height: 360 },
-    243: { quality: "360p", ext: "WebM", isAudio: false, hasAudio: false, height: 360 },
-    396: { quality: "360p", ext: "MP4", isAudio: false, hasAudio: false, height: 360 },
+    134: { quality: "360p", ext: "MP4", isAudio: false, hasAudio: true, height: 360 },
+    243: { quality: "360p", ext: "WebM", isAudio: false, hasAudio: true, height: 360 },
+    396: { quality: "360p", ext: "MP4", isAudio: false, hasAudio: true, height: 360 },
 
-    133: { quality: "240p", ext: "MP4", isAudio: false, hasAudio: false, height: 240 },
-    242: { quality: "240p", ext: "WebM", isAudio: false, hasAudio: false, height: 240 },
-    395: { quality: "240p", ext: "MP4", isAudio: false, hasAudio: false, height: 240 },
+    133: { quality: "240p", ext: "MP4", isAudio: false, hasAudio: true, height: 240 },
+    242: { quality: "240p", ext: "WebM", isAudio: false, hasAudio: true, height: 240 },
+    395: { quality: "240p", ext: "MP4", isAudio: false, hasAudio: true, height: 240 },
 
-    160: { quality: "144p", ext: "MP4", isAudio: false, hasAudio: false, height: 144 },
-    278: { quality: "144p", ext: "WebM", isAudio: false, hasAudio: false, height: 144 },
-    394: { quality: "144p", ext: "MP4", isAudio: false, hasAudio: false, height: 144 },
+    160: { quality: "144p", ext: "MP4", isAudio: false, hasAudio: true, height: 144 },
+    278: { quality: "144p", ext: "WebM", isAudio: false, hasAudio: true, height: 144 },
+    394: { quality: "144p", ext: "MP4", isAudio: false, hasAudio: true, height: 144 },
 
-    308: { quality: "1440p QHD 60 fps", ext: "WebM", isAudio: false, hasAudio: false, height: 1440 },
-    271: { quality: "1440p QHD", ext: "WebM", isAudio: false, hasAudio: false, height: 1440 },
-    400: { quality: "1440p QHD", ext: "MP4", isAudio: false, hasAudio: false, height: 1440 },
+    308: { quality: "1440p QHD 60 fps", ext: "WebM", isAudio: false, hasAudio: true, height: 1440 },
+    271: { quality: "1440p QHD", ext: "WebM", isAudio: false, hasAudio: true, height: 1440 },
+    400: { quality: "1440p QHD", ext: "MP4", isAudio: false, hasAudio: true, height: 1440 },
 
-    315: { quality: "2160p 4K 60 fps", ext: "WebM", isAudio: false, hasAudio: false, height: 2160 },
-    313: { quality: "2160p 4K", ext: "WebM", isAudio: false, hasAudio: false, height: 2160 },
-    401: { quality: "2160p 4K", ext: "MP4", isAudio: false, hasAudio: false, height: 2160 },
+    315: { quality: "2160p 4K 60 fps", ext: "WebM", isAudio: false, hasAudio: true, height: 2160 },
+    313: { quality: "2160p 4K", ext: "WebM", isAudio: false, hasAudio: true, height: 2160 },
+    401: { quality: "2160p 4K", ext: "MP4", isAudio: false, hasAudio: true, height: 2160 },
 
     // Audio Only
     140: { quality: "128 kbps", ext: "M4A", isAudio: true, hasAudio: true, height: 0 },
@@ -103,6 +102,7 @@
     }
 
     const itagInfo = itag ? YT_ITAGS[itag] : null;
+    const isYt = /youtube\.com|youtu\.be|googlevideo\.com/i.test(url) || /youtube\.com/i.test(location.hostname) || !!itag;
 
     let isAudio = false;
     let hasAudio = true;
@@ -114,7 +114,8 @@
     if (formatObj) {
       const mime = (formatObj.mimeType || "").toLowerCase();
       isAudio = mime.startsWith("audio");
-      hasAudio = isAudio || !!formatObj.audioChannels || !!formatObj.audioQuality;
+      // For YouTube downloads, VDM always merges the audio sidecar into video formats
+      hasAudio = isYt ? true : (isAudio || !!formatObj.audioChannels || !!formatObj.audioQuality);
       if (formatObj.contentLength) size = parseInt(formatObj.contentLength, 10);
       height = formatObj.height || 0;
       if (formatObj.fps && formatObj.qualityLabel) {
@@ -127,7 +128,7 @@
 
     if (itagInfo) {
       isAudio = itagInfo.isAudio;
-      hasAudio = itagInfo.hasAudio;
+      hasAudio = isYt ? true : itagInfo.hasAudio;
       ext = itagInfo.ext;
       if (!quality) quality = itagInfo.quality;
       if (!height) height = itagInfo.height;
@@ -236,9 +237,15 @@
       }
 
       const itag = f.itag || 0;
-      const targetUrl = (streamUrl && /^https?:/i.test(streamUrl))
-        ? streamUrl
-        : `https://www.youtube.com/watch?v=${videoId}&itag=${itag}`;
+      // Prefer the watch URL with itag: VDM's yt-dlp extraction resolves
+      // video + separate audio streams from it and muxes them. A raw signed
+      // googlevideo URL bypasses extraction → video-only, no audio.
+      const watchUrl = `https://www.youtube.com/watch?v=${videoId}&itag=${itag}`;
+      const targetUrl = (videoId && itag)
+        ? watchUrl
+        : (streamUrl && /^https?:/i.test(streamUrl))
+          ? streamUrl
+          : watchUrl;
 
       const info = resolveMediaInfo(targetUrl, f);
 
@@ -307,11 +314,11 @@
     if (currentV && media.size <= 2) {
       const pageTitle = (document.title || "video").replace(/ - YouTube$/i, "").trim().slice(0, 80).replace(/[/\\?%*:|"<>]/g, "_");
       const ytPresets = [
-        { itag: 401, quality: "2160p 4K 60 fps", type: "MP4", isAudio: false, hasAudio: false, height: 2160 },
-        { itag: 400, quality: "1440p HD 60 fps", type: "MP4", isAudio: false, hasAudio: false, height: 1440 },
-        { itag: 299, quality: "1080p HD 60 fps", type: "MP4", isAudio: false, hasAudio: false, height: 1080 },
+        { itag: 401, quality: "2160p 4K 60 fps", type: "MP4", isAudio: false, hasAudio: true, height: 2160 },
+        { itag: 400, quality: "1440p HD 60 fps", type: "MP4", isAudio: false, hasAudio: true, height: 1440 },
+        { itag: 299, quality: "1080p HD 60 fps", type: "MP4", isAudio: false, hasAudio: true, height: 1080 },
         { itag: 22,  quality: "720p HD", type: "MP4", isAudio: false, hasAudio: true, height: 720 },
-        { itag: 135, quality: "480p", type: "MP4", isAudio: false, hasAudio: false, height: 480 },
+        { itag: 135, quality: "480p", type: "MP4", isAudio: false, hasAudio: true, height: 480 },
         { itag: 18,  quality: "360p", type: "MP4", isAudio: false, hasAudio: true, height: 360 },
         { itag: 251, quality: "320 kbps High Quality", type: "MP3", isAudio: true, hasAudio: true, height: 0 },
         { itag: 140, quality: "128 kbps Medium", type: "M4A", isAudio: true, hasAudio: true, height: 0 },
@@ -919,6 +926,17 @@
   }
 
   function sendOne(url, filename, row, btn, fileSize) {
+    // Rewrite raw googlevideo URLs to watch?v=&itag= — VDM's yt-dlp path
+    // extracts video+audio from a watch URL and muxes them. Direct signed
+    // URLs bypass extraction → video-only file, no audio.
+    if (/googlevideo\.com/i.test(url) && !/youtube\.com/i.test(url)) {
+      const itag = /[?&]itag=(\d+)/.exec(url);
+      if (itag) {
+        const vid = getYouTubeVideoId();
+        if (vid) url = `https://www.youtube.com/watch?v=${vid}&itag=${itag[1]}`;
+      }
+    }
+
     if (btn) {
       btn.disabled = true;
       btn.innerHTML = `<svg class="spin-ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="28" stroke-dashoffset="10"/></svg><span>Saving...</span>`;

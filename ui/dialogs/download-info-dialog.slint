@@ -46,19 +46,16 @@ export component DownloadInfoDialog inherits Window {
         background: #18181A;
         border-width: 1px;
         border-color: #2E2E32;
-        drop-shadow-blur: 32px;
-        drop-shadow-color: #000000cc;
+        clip: true;
 
         VerticalLayout {
             padding: 0;
             spacing: 0;
 
-            // ── Blended Integrated Header ──
+            // ── Seamless Blended Header ──
             Rectangle {
                 height: 36px;
-                background: #141416;
-                border-top-left-radius: 12px;
-                border-top-right-radius: 12px;
+                background: transparent;
 
                 TouchArea {
                     moved => { root.drag-window(); }

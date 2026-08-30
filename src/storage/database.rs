@@ -197,6 +197,14 @@ impl Db {
         Ok(())
     }
 
+    pub fn update_filename_and_dir(&self, id: &str, filename: &str, dir: &str) -> rusqlite::Result<()> {
+        self.conn.lock().unwrap().execute(
+            "UPDATE tasks SET filename=?2, dir=?3 WHERE id=?1",
+            params![id, filename, dir],
+        )?;
+        Ok(())
+    }
+
     pub fn update_url(&self, id: &str, url: &str) -> rusqlite::Result<()> {
         self.conn.lock().unwrap().execute(
             "UPDATE tasks SET url=?2 WHERE id=?1",
