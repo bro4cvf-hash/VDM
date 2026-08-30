@@ -27,4 +27,3 @@ logs
 .vscode/*
 !.vscode/extensions.json
 .idea
-docs/img/app-complete.png
