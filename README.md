@@ -18,16 +18,16 @@
 
 ## ✨ Features
 
-- 🚀 **Multi-threaded engine** — up to 32 parallel connections per file with HTTP Range work-stealing and sparse pre-allocation
-- ⏸️ **Resumable everything** — pause, resume, and restart from exact byte positions; chunk state persisted in SQLite so downloads survive crashes and reboots
-- 🌐 **Browser integration** — a companion extension (Chrome / Edge / Brave) intercepts downloads and streams links straight into VDM
-- 🎯 **IDM-style dialogs** — file info, live per-connection progress, and completion prompts that feel instantly familiar
-- 🐢 **Speed limiter** — token-bucket throttling from 2 MB/s up to unlimited
-- 🗂️ **Smart categories** — video, music, programs, documents, and archives auto-sorted with per-category save folders
-- 📥 **Queue management** — configurable parallel download slots with priority ordering
-- 🔗 **yt-dlp support** — paste a video URL and VDM delegates to [yt-dlp](https://github.com/yt-dlp/yt-dlp) when it's on PATH
-- 🫥 **Tray-resident** — lives in the system tray with a custom morphing menu; single-instance via loopback API
-- 🖤 **Native dark glass UI** — pure GPU-rendered Slint, crisp at any DPI, ~30 MB installed
+- <img src="docs/icons/zap.svg" width="18" valign="middle" alt=""/> **Multi-threaded engine** — up to 32 parallel connections per file with HTTP Range work-stealing and sparse pre-allocation
+- <img src="docs/icons/refresh.svg" width="18" valign="middle" alt=""/> **Resumable everything** — pause, resume, and restart from exact byte positions; chunk state persisted in SQLite so downloads survive crashes and reboots
+- <img src="docs/icons/globe.svg" width="18" valign="middle" alt=""/> **Browser integration** — a companion extension (Chrome / Edge / Brave) intercepts downloads and streams links straight into VDM
+- <img src="docs/icons/dialog.svg" width="18" valign="middle" alt=""/> **IDM-style dialogs** — file info, live per-connection progress, and completion prompts that feel instantly familiar
+- <img src="docs/icons/sliders.svg" width="18" valign="middle" alt=""/> **Speed limiter** — token-bucket throttling from 2 MB/s up to unlimited
+- <img src="docs/icons/archive.svg" width="18" valign="middle" alt=""/> **Smart categories** — video, music, programs, documents, and archives auto-sorted with per-category save folders
+- <img src="docs/icons/list.svg" width="18" valign="middle" alt=""/> **Queue management** — configurable parallel download slots with priority ordering
+- <img src="docs/icons/link.svg" width="18" valign="middle" alt=""/> **yt-dlp support** — paste a video URL and VDM delegates to [yt-dlp](https://github.com/yt-dlp/yt-dlp) when it's on PATH
+- <img src="docs/icons/tray.svg" width="18" valign="middle" alt=""/> **Tray-resident** — lives in the system tray with a custom morphing menu; single-instance via loopback API
+- <img src="docs/icons/moon.svg" width="18" valign="middle" alt=""/> **Native dark glass UI** — pure GPU-rendered Slint, crisp at any DPI, ~30 MB installed
 
 <div align="center">
 
