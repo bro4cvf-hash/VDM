@@ -229,10 +229,11 @@ fn detect_category(filename: &str) -> String {
     }
 }
 
-fn format_timestamp(ts: i64) -> String {
-    if ts <= 0 {
+fn format_timestamp(ts_ms: i64) -> String {
+    if ts_ms <= 0 {
         return "—".to_string();
     }
+    let ts = ts_ms / 1000; // created_at is milliseconds; calendar math below is seconds-based
     let mins_total = ts / 60;
     let mins = mins_total % 60;
     let hours = (mins_total / 60) % 24;
@@ -804,18 +805,19 @@ fn main() -> anyhow::Result<()> {
         let mut first_id = String::new();
         let mut first_name = String::new();
         if let Some(vm) = model.as_any().downcast_ref::<VecModel<DownloadItem>>() {
-            for i in 0..count {
-                if let Some(mut it) = vm.row_data(i) {
-                    if first_id.is_empty() {
-                        first_id = it.id.to_string();
-                        first_name = it.filename.to_string();
-                    }
-                    if !it.selected {
-                        it.selected = true;
-                        vm.set_row_data(i, it);
-                    }
+        for i in 0..count {
+            if let Some(mut it) = vm.row_data(i) {
+                sel.insert(it.id.to_string());
+                if first_id.is_empty() {
+                    first_id = it.id.to_string();
+                    first_name = it.filename.to_string();
+                }
+                if !it.selected {
+                    it.selected = true;
+                    vm.set_row_data(i, it);
                 }
             }
+        }
         }
         a.set_selected_count(sel.len() as i32);
         a.set_first_selected_id(first_id.into());
@@ -1151,8 +1153,11 @@ fn main() -> anyhow::Result<()> {
     });
 
     let weak_dup_close = duplicate_dialog.as_weak();
+    let pending_dup_close = pending_payloads.clone();
     duplicate_dialog.on_closed(move || {
         if let Some(d) = weak_dup_close.upgrade() {
+            // drop the staged intercept payload so dismissed dialogs don't leak it
+            pending_dup_close.lock().unwrap().remove(&String::from(d.get_new_url()));
             let _ = d.hide();
         }
     });
@@ -1719,13 +1724,17 @@ fn main() -> anyhow::Result<()> {
             d.set_is_probing(true);
         }
         tokio::spawn(async move {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(8))
-                .redirect(reqwest::redirect::Policy::limited(10))
-                .build()
-                .unwrap_or_default();
+            // one shared client instead of a fresh pool per keystroke
+            static PROBE_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+            let client = PROBE_CLIENT.get_or_init(|| {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(8))
+                    .redirect(reqwest::redirect::Policy::limited(10))
+                    .build()
+                    .unwrap_or_default()
+            });
 
-            if let Ok(p) = engine::probe::probe(&client, &url, &headers).await {
+            if let Ok(p) = engine::probe::probe(client, &url, &headers).await {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(d) = weak_dialog.upgrade() {
                         d.set_is_probing(false);
@@ -2016,6 +2025,17 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(250));
         let snaps = manager_cloned_for_poll.list_downloads().unwrap_or_default();
 
+        // armed from the complete dialog: shut down the PC once the queue drains
+        // (checked before the fingerprint gate so a static state still triggers)
+        if SHUTDOWN_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+            let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued"));
+            let any_done = snaps.iter().any(|s| s.status == "completed");
+            if !busy && any_done && SHUTDOWN_ARMED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                // 30s grace window; `shutdown /a` aborts
+                let _ = std::process::Command::new("shutdown").args(["/s", "/t", "30"]).spawn();
+            }
+        }
+
         let sel_guard = selected_ids_for_poll.lock().unwrap();
 
         // cheap fingerprint: skip UI update entirely when nothing changed
@@ -2214,16 +2234,6 @@ fn main() -> anyhow::Result<()> {
                     newly.push((s.id.clone(), s.filename.clone(), s.total.unwrap_or(0), loc, s.url.clone()));
                 }
             }
-        }
-
-        // armed from the complete dialog: shut down the PC once the queue drains
-        if SHUTDOWN_ARMED.load(std::sync::atomic::Ordering::Relaxed)
-            && downloading_count == 0
-            && completed_count > 0
-            && SHUTDOWN_ARMED.swap(false, std::sync::atomic::Ordering::Relaxed)
-        {
-            // 30s grace window; `shutdown /a` aborts
-            let _ = std::process::Command::new("shutdown").args(["/s", "/t", "30"]).spawn();
         }
 
         // Apply sidebar active filter & search query

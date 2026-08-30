@@ -220,21 +220,24 @@ impl BrowserDetector {
         }
 
         // Also ensure project root ./extension folder is synced if running in workspace
-        let local_ext = PathBuf::from("extension");
-        if local_ext.exists() {
-            let _ = std::fs::write(local_ext.join("manifest.json"), MANIFEST_JSON);
-            let _ = std::fs::write(local_ext.join("background.js"), BACKGROUND_JS);
-            let _ = std::fs::write(local_ext.join("content.js"), CONTENT_JS);
-            let _ = std::fs::write(local_ext.join("yt_bridge.js"), YT_BRIDGE_JS);
-            let _ = std::fs::write(local_ext.join("popup.html"), POPUP_HTML);
-            let _ = std::fs::write(local_ext.join("popup.js"), POPUP_JS);
-            let local_icons = local_ext.join("icons");
-            let _ = std::fs::create_dir_all(&local_icons);
-            for sz in [16, 48, 128] {
-                let icon_path = local_icons.join(format!("icon{sz}.png"));
-                if !icon_path.exists() {
-                    if let Some(png) = render_icon(sz) {
-                        let _ = std::fs::write(&icon_path, png);
+        // (debug builds only — a release build must not stomp the user's CWD)
+        if cfg!(debug_assertions) {
+            let local_ext = PathBuf::from("extension");
+            if local_ext.exists() {
+                let _ = std::fs::write(local_ext.join("manifest.json"), MANIFEST_JSON);
+                let _ = std::fs::write(local_ext.join("background.js"), BACKGROUND_JS);
+                let _ = std::fs::write(local_ext.join("content.js"), CONTENT_JS);
+                let _ = std::fs::write(local_ext.join("yt_bridge.js"), YT_BRIDGE_JS);
+                let _ = std::fs::write(local_ext.join("popup.html"), POPUP_HTML);
+                let _ = std::fs::write(local_ext.join("popup.js"), POPUP_JS);
+                let local_icons = local_ext.join("icons");
+                let _ = std::fs::create_dir_all(&local_icons);
+                for sz in [16, 48, 128] {
+                    let icon_path = local_icons.join(format!("icon{sz}.png"));
+                    if !icon_path.exists() {
+                        if let Some(png) = render_icon(sz) {
+                            let _ = std::fs::write(&icon_path, png);
+                        }
                     }
                 }
             }

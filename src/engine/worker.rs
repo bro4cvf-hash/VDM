@@ -288,6 +288,7 @@ async fn drive_cell(ctx: &WorkerCtx, cell: &Arc<Cell>, rx: &mut watch::Receiver<
 
         let mut cursor = pos;
         let mut written_since_persist: u64 = 0;
+        let mut progressed = false;
         let mut stopped = false;
         let mut paused = false;
         let mut eof = false;
@@ -350,6 +351,7 @@ async fn drive_cell(ctx: &WorkerCtx, cell: &Arc<Cell>, rx: &mut watch::Receiver<
                         break;
                     }
                     cursor += g as u64;
+                    progressed = true;
                     cell.done.fetch_add(g as u64, Ordering::Relaxed);
                     cell.speed.fetch_add(g as u64, Ordering::Relaxed);
                     written_since_persist += g as u64;
@@ -385,6 +387,9 @@ async fn drive_cell(ctx: &WorkerCtx, cell: &Arc<Cell>, rx: &mut watch::Receiver<
         persist_cell(ctx, cell);
 
         if let Some(m) = stream_err {
+            if progressed {
+                attempts = 0; // real progress made — hiccups shouldn't doom the task
+            }
             attempts += 1;
             if attempts > MAX_CONSECUTIVE_FAILURES {
                 return DriveOutcome::Failed(m);

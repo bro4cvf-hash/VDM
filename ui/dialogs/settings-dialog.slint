@@ -15,8 +15,6 @@ export component SettingsDialog inherits Window {
 
     in property <[BrowserItem]> browsers;
     in-out property <int> active-tab: 0;
-    in-out property <bool> intercept-browser: true;
-    in-out property <bool> clipboard-sniffer: true;
     in-out property <bool> show-info-modal: true;
     in-out property <int> max-active: 3;
     in-out property <int> max-connections: 8;
@@ -389,22 +387,11 @@ export component SettingsDialog inherits Window {
                             padding: 10px;
                             spacing: 4px;
 
-                            SwitchRow {
-                                title: "Intercept browser downloads";
-                                subtitle: "Captures web downloads into VDM multi-threaded engine (:9191)";
-                                checked <=> root.intercept-browser;
-                            }
-
-                            SwitchRow {
-                                title: "Automatic clipboard URL sniffer";
-                                subtitle: "Automatically detects copied download URLs from clipboard";
-                                checked <=> root.clipboard-sniffer;
-                            }
-
-                            SwitchRow {
-                                title: "Show 'Download File Info' modal";
-                                subtitle: "Confirm file details, category, and save location before starting";
-                                checked <=> root.show-info-modal;
+                            Text {
+                                text: "Browser downloads are captured by the installed extension. Use Add URL to paste a link from the clipboard.";
+                                font-size: 11px;
+                                color: #8E8E93;
+                                wrap: word-wrap;
                             }
                         }
                     }
@@ -474,7 +461,7 @@ export component SettingsDialog inherits Window {
                                     box-width: 76px;
                                     text-val: root.max-active + "";
                                     can-decrease: root.max-active > 1;
-                                    can-increase: root.max-active < 32;
+                                    can-increase: root.max-active < 16;
                                     decrease => {
                                         if root.max-active > 1 {
                                             root.max-active -= 1;
@@ -482,7 +469,7 @@ export component SettingsDialog inherits Window {
                                         }
                                     }
                                     increase => {
-                                        if root.max-active < 32 {
+                                        if root.max-active < 16 {
                                             root.max-active += 1;
                                             root.set-max-active(root.max-active);
                                         }
@@ -490,7 +477,7 @@ export component SettingsDialog inherits Window {
                                     accepted(s) => {
                                         let v = Math.round(s.to-float());
                                         if v >= 1 {
-                                            root.max-active = Math.min(32, Math.max(1, v));
+                                            root.max-active = Math.min(16, Math.max(1, v));
                                             root.set-max-active(root.max-active);
                                         }
                                     }

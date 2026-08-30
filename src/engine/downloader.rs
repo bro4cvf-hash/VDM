@@ -302,6 +302,7 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Pause);
         }
+        self.pump(); // freed a slot — promote the oldest queued task
         Ok(())
     }
 
@@ -387,12 +388,10 @@ impl Manager {
     // ---------------- snapshots ----------------
 
     pub fn snapshot_of(&self, id: &str) -> anyhow::Result<TaskSnapshot> {
-        self.db
-            .list_tasks()?
-            .into_iter()
-            .find(|(t, _)| t.id == id)
-            .map(|(t, chunks)| self.merged_snapshot(&t, &chunks))
-            .ok_or_else(|| anyhow::anyhow!("task not found"))
+        match self.db.get_task(id)? {
+            Some((t, chunks)) => Ok(self.merged_snapshot(&t, &chunks)),
+            None => anyhow::bail!("task not found"),
+        }
     }
 
     pub fn list_downloads(&self) -> anyhow::Result<Vec<TaskSnapshot>> {
@@ -577,6 +576,8 @@ impl Manager {
             (t, chunks)
         };
         if row.status == Status::Paused {
+            // keep the in-memory map in sync or the task occupies a pump slot forever
+            self.statuses.lock().unwrap().insert(id.into(), Status::Paused);
             return Ok(());
         }
 
@@ -696,12 +697,14 @@ impl Manager {
                     Arc::new(cell)
                 })
                 .collect()
-        } else if ranged {
+        } else if ranged && total.is_some() {
             default_chunks_n(total.unwrap_or(1), conns)
                 .into_iter()
                 .map(|c| Arc::new(Cell::new(c.idx as usize, c.start as u64, (c.end + 1) as u64)))
                 .collect()
         } else {
+            // no size known (ranged or not): single stream grown to EOF — splitting
+            // an unknown total would clip every cell to the placeholder size
             vec![Arc::new(Cell::new(0, 0, worker::UNKNOWN_END))]
         };
 
@@ -769,7 +772,11 @@ impl Manager {
         let mut stopped = false;
         let mut paused_seen = false;
         while let Some(out) = joinset.join_next().await {
-            match out.expect("worker panicked") {
+            let outcome = match out {
+                Ok(o) => o,
+                Err(join_err) => worker::DriveOutcome::Failed(format!("worker crashed: {join_err}")),
+            };
+            match outcome {
                 worker::DriveOutcome::Failed(m) => {
                     if failed.is_none() {
                         failed = Some(m);
@@ -791,6 +798,17 @@ impl Manager {
         }
         if let Some(m) = failed {
             return Err(anyhow::anyhow!("{m}"));
+        }
+
+        // a resume() that raced this winding-down run re-queued the task; a fresh
+        // run owns it now — hand it back to the pump instead of clobbering status
+        match *self.statuses.lock().unwrap().get(id).unwrap_or(&Status::Paused) {
+            Status::Queued | Status::Connecting => {
+                self.statuses.lock().unwrap().insert(id.into(), Status::Queued);
+                self.db.set_status(id, Status::Queued).ok();
+                return Ok(());
+            }
+            _ => {}
         }
 
         let known_total = rt.total.load(Ordering::Relaxed);

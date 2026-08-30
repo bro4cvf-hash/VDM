@@ -152,6 +152,15 @@ impl Db {
 
     pub fn replace_chunks(&self, task_id: &str, chunks: &[ChunkRow]) -> rusqlite::Result<()> {
         let mut c = self.conn.lock().unwrap();
+        // task removed mid-run: drop the write instead of orphaning chunk rows
+        let exists: i64 = c.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE id=?1",
+            params![task_id],
+            |r| r.get(0),
+        )?;
+        if exists == 0 {
+            return Ok(());
+        }
         let tx = c.transaction()?;
         tx.execute("DELETE FROM chunks WHERE task_id=?1", params![task_id])?;
         for ch in chunks {
@@ -357,6 +366,7 @@ pub fn default_chunks_n(total: u64, parts: usize) -> Vec<ChunkRow> {
         return Vec::new(); // unknown-size streams use worker::UNKNOWN_END cells instead
     }
     let n = parts.clamp(1, 32) as u64;
+    let n = n.min(total); // no zero-length degenerate cells when total < parts
     let base = total / n;
     let rem = total % n;
     let mut out = Vec::new();

@@ -24,7 +24,7 @@
 - <img src="docs/icons/dialog.svg" width="18" valign="middle" alt=""/> **IDM-style dialogs** — file info, live per-connection progress, and completion prompts that feel instantly familiar
 - <img src="docs/icons/sliders.svg" width="18" valign="middle" alt=""/> **Speed limiter** — token-bucket throttling from 2 MB/s up to unlimited
 - <img src="docs/icons/archive.svg" width="18" valign="middle" alt=""/> **Smart categories** — video, music, programs, documents, and archives auto-sorted with per-category save folders
-- <img src="docs/icons/list.svg" width="18" valign="middle" alt=""/> **Queue management** — configurable parallel download slots with priority ordering
+- <img src="docs/icons/list.svg" width="18" valign="middle" alt=""/> **Queue management** — configurable parallel download slots with FIFO queuing
 - <img src="docs/icons/link.svg" width="18" valign="middle" alt=""/> **yt-dlp support** — paste a video URL and VDM delegates to [yt-dlp](https://github.com/yt-dlp/yt-dlp) when it's on PATH
 - <img src="docs/icons/tray.svg" width="18" valign="middle" alt=""/> **Tray-resident** — lives in the system tray with a custom morphing menu; single-instance via loopback API
 - <img src="docs/icons/moon.svg" width="18" valign="middle" alt=""/> **Native dark glass UI** — pure GPU-rendered Slint, crisp at any DPI, ~30 MB installed
