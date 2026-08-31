@@ -6,6 +6,7 @@ import { Field, SearchField } from "../components/inputs.slint";
 import { Dropdown } from "../components/dropdown.slint";
 import { HeaderCol, ColMenuItem, SideItem, SectionHeader } from "../components/table.slint";
 import { ContextMenuItem, ContextMenuSeparator, SubmenuItem } from "../components/context-menu.slint";
+import { Palette } from "../theme.slint";
 
 export component AppWindow inherits Window {
     preferred-width: 1120px;
@@ -140,6 +141,7 @@ export component AppWindow inherits Window {
     callback search-changed(string);
     callback row-clicked(int, bool, bool);
     callback select-all-items();
+    callback deselect-all-items();
     callback resume-selected();
     callback pause-selected();
     callback remove-selected(bool);
@@ -299,31 +301,77 @@ export component AppWindow inherits Window {
         return 32px;
     }
 
-    // seamless: one flat #1E1E1E canvas
+    // seamless: one flat base-bg canvas
     Rectangle {
         x: 0;
         y: 0;
         width: 100%;
         height: 100%;
         border-radius: root.is-maximized ? 0px : 12px;
-        background: #1E1E1E;
+        background: Palette.base-bg;
         border-width: root.is-maximized ? 0px : 1px;
-        border-color: #3A3A3C;
+        border-color: Palette.border-color;
         clip: true;
 
-        // Global background click to unfocus inputs
+        // Global background click to unfocus inputs and focus main list
         TouchArea {
-            clicked => { search-box.clear-focus(); }
+            clicked => {
+                search-box.clear-focus();
+                main-focus.focus();
+            }
         }
 
-        // Global Keyboard Shortcuts (Ctrl+N, Ctrl+V, Ctrl+M, Delete, Return, Alt+Return, Escape)
-        FocusScope {
+        // Global Keyboard Shortcuts (Ctrl+A, Delete, Shift+Delete, Up/Down, Return, Space, Ctrl+C, Ctrl+V, Ctrl+N, Ctrl+F, Ctrl+O, F2, F5, Escape, Shift+F10)
+        main-focus := FocusScope {
+            init => {
+                self.focus();
+            }
+
             key-pressed(event) => {
+                // Ctrl+A / Ctrl+a: Select All
+                if event.modifiers.control && (event.text == "a" || event.text == "A") {
+                    search-box.clear-focus();
+                    root.select-all-items();
+                    return accept;
+                }
+
+                // Ctrl+N / Ctrl+V: Add / Paste Download URL
                 if event.modifiers.control && (event.text == "n" || event.text == "N" || event.text == "v" || event.text == "V") {
                     search-box.clear-focus();
                     root.open-add();
                     return accept;
-                } else if event.modifiers.control && (event.text == "m" || event.text == "M") {
+                }
+
+                // Ctrl+F: Focus Search Box
+                if event.modifiers.control && (event.text == "f" || event.text == "F") {
+                    search-box.focus();
+                    return accept;
+                }
+
+                // Ctrl+C: Copy URL of selected download(s)
+                if event.modifiers.control && (event.text == "c" || event.text == "C") {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.copy-url(item.url);
+                        return accept;
+                    }
+                }
+
+                // Ctrl+O: Open Completed File / Open Folder
+                if event.modifiers.control && (event.text == "o" || event.text == "O") {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        if item.status == "completed" {
+                            root.open-file(item.id);
+                        } else {
+                            root.open-folder(item.id);
+                        }
+                        return accept;
+                    }
+                }
+
+                // F2 or Ctrl+M: Rename Download
+                if (event.modifiers.control && (event.text == "m" || event.text == "M")) || event.text == Key.F2 {
                     if root.selected-index >= 0 && root.selected-index < root.downloads.length {
                         let item = root.downloads[root.selected-index];
                         root.rename-id = item.id;
@@ -332,14 +380,39 @@ export component AppWindow inherits Window {
                         root.show-rename-modal = true;
                         return accept;
                     }
-                } else if event.text == Key.Delete {
+                }
+
+                // F5 or Ctrl+R: Redownload / Refresh Selected
+                if (event.modifiers.control && (event.text == "r" || event.text == "R")) || event.text == Key.F5 {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.redownload(item.id);
+                        return accept;
+                    }
+                }
+
+                // Delete / Backspace / Ctrl+D / Shift+Delete: Delete Selected
+                if event.text == Key.Delete || event.text == Key.Backspace || (event.modifiers.control && (event.text == "d" || event.text == "D")) {
+                    if root.show-confirm {
+                        return reject;
+                    }
+                    let del-file = event.modifiers.shift;
                     if root.selected-count > 1 {
                         root.confirm-title = "Delete " + root.selected-count + " Downloads";
                         root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
                         root.confirm-target-id = "";
                         root.confirm-action = "delete-selected";
                         root.confirm-show-delete-file-option = true;
-                        root.confirm-delete-file = false;
+                        root.confirm-delete-file = del-file;
+                        root.show-confirm = true;
+                        return accept;
+                    } else if root.first-selected-id != "" {
+                        root.confirm-title = "Delete Download";
+                        root.confirm-message = "Are you sure you want to delete \"" + root.first-selected-filename + "\"?";
+                        root.confirm-target-id = root.first-selected-id;
+                        root.confirm-action = "delete";
+                        root.confirm-show-delete-file-option = true;
+                        root.confirm-delete-file = del-file;
                         root.show-confirm = true;
                         return accept;
                     } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
@@ -349,11 +422,37 @@ export component AppWindow inherits Window {
                         root.confirm-target-id = item.id;
                         root.confirm-action = "delete";
                         root.confirm-show-delete-file-option = true;
-                        root.confirm-delete-file = false;
+                        root.confirm-delete-file = del-file;
                         root.show-confirm = true;
                         return accept;
                     }
-                } else if event.text == Key.Return {
+                }
+
+                // Return: Confirm Modals or Open / Double-click Action
+                if event.text == Key.Return {
+                    if root.show-confirm {
+                        root.show-confirm = false;
+                        if root.confirm-action == "delete" {
+                            root.remove-download(root.confirm-target-id, root.confirm-delete-file);
+                        } else if root.confirm-action == "delete-selected" {
+                            root.remove-selected(root.confirm-delete-file);
+                        } else if root.confirm-action == "clear-completed" {
+                            root.clear-completed();
+                        }
+                        return accept;
+                    }
+                    if root.show-rename-modal {
+                        root.rename-task(root.rename-id, root.rename-filename, root.rename-folder);
+                        root.show-rename-modal = false;
+                        return accept;
+                    }
+                    if root.show-details-modal {
+                        if root.details-new-url != root.details-url {
+                            root.update-download-url(root.details-id, root.details-new-url);
+                        }
+                        root.show-details-modal = false;
+                        return accept;
+                    }
                     if root.selected-index >= 0 && root.selected-index < root.downloads.length {
                         let item = root.downloads[root.selected-index];
                         if event.modifiers.alt {
@@ -363,7 +462,104 @@ export component AppWindow inherits Window {
                         }
                         return accept;
                     }
-                } else if event.text == Key.Escape {
+                }
+
+                // Space: Toggle Checkbox in Confirm Modal or Pause / Resume Selected
+                if event.text == " " {
+                    if root.show-confirm {
+                        if root.confirm-show-delete-file-option {
+                            root.confirm-delete-file = !root.confirm-delete-file;
+                        }
+                        return accept;
+                    }
+                    if !root.show-rename-modal && !root.show-details-modal && !root.show-context-menu {
+                        if root.selected-count > 1 {
+                            root.pause-selected();
+                            return accept;
+                        } else if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                            let item = root.downloads[root.selected-index];
+                            if item.status == "downloading" || item.status == "connecting" {
+                                root.pause-download(item.id);
+                            } else {
+                                root.resume-download(item.id);
+                            }
+                            return accept;
+                        }
+                    }
+                }
+
+                // Up / Down Navigation
+                if event.text == Key.UpArrow {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        let next-idx = root.selected-index > 0 ? root.selected-index - 1 : 0;
+                        root.row-clicked(next-idx, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                if event.text == Key.DownArrow {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        let next-idx = root.selected-index < root.downloads.length - 1 ? (root.selected-index < 0 ? 0 : root.selected-index + 1) : root.downloads.length - 1;
+                        root.row-clicked(next-idx, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                // Home / End Navigation
+                if event.text == Key.Home {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        root.row-clicked(0, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                if event.text == Key.End {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        root.row-clicked(root.downloads.length - 1, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                // PageUp / PageDown
+                if event.text == Key.PageUp {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        let next-idx = Math.max(0, root.selected-index - 10);
+                        root.row-clicked(next-idx, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                if event.text == Key.PageDown {
+                    if !root.show-confirm && !root.show-rename-modal && !root.show-details-modal && root.downloads.length > 0 {
+                        let next-idx = Math.min(root.downloads.length - 1, Math.max(0, root.selected-index + 10));
+                        root.row-clicked(next-idx, event.modifiers.shift, event.modifiers.control);
+                        return accept;
+                    }
+                }
+
+                // Menu Key / Shift+F10: Open Context Menu
+                if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.context-id = item.id;
+                        root.context-filename = item.filename;
+                        root.context-status = item.status;
+                        root.context-url = item.url;
+                        root.context-referrer = item.referrer;
+                        root.context-file-type = item.file_type;
+                        root.context-error-msg = item.error_msg;
+                        root.context-submenu = 0;
+                        root.context-menu-origin-x = 240px;
+                        root.context-menu-origin-y = 120px;
+                        root.context-menu-x = 240px;
+                        root.context-menu-y = Math.min(root.height - 450px, 86px + root.selected-index * 41px);
+                        root.show-context-menu = true;
+                        return accept;
+                    }
+                }
+
+                // Escape: Dismiss overlays, deselect multi-selection, clear search
+                if event.text == Key.Escape {
                     if root.show-context-menu {
                         root.show-context-menu = false;
                         root.context-submenu = 0;
@@ -383,6 +579,15 @@ export component AppWindow inherits Window {
                     }
                     if root.show-col-menu {
                         root.show-col-menu = false;
+                        return accept;
+                    }
+                    if root.selected-count > 1 {
+                        root.deselect-all-items();
+                        return accept;
+                    }
+                    if root.search-text != "" {
+                        root.search-text = "";
+                        root.search-changed("");
                         return accept;
                     }
                 }
@@ -413,9 +618,9 @@ export component AppWindow inherits Window {
                     height: 32px;
                     y: root.side-y(root.active-filter);
                     border-radius: 6px;
-                    background: @linear-gradient(180deg, #2394FF, #0A84FF);
+                    background: @linear-gradient(180deg, Palette.accent-gradient-start, Palette.accent-gradient-end);
                     drop-shadow-blur: 10px;
-                    drop-shadow-color: #0A84FF66;
+                    drop-shadow-color: Palette.accent-tint-bg;
                     animate y { duration: 420ms; easing: cubic-bezier(0.3, 1.4, 0.4, 1); }
                 }
 
@@ -438,7 +643,7 @@ export component AppWindow inherits Window {
                             count: root.total-count;
                             is-active: root.active-filter == "All";
                             tint: #98989D;
-                            clicked => { search-box.clear-focus(); root.active-filter = "All"; root.filter-changed("All"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "All"; root.filter-changed("All"); }
                         }
                         SideItem {
                             label: "Downloading";
@@ -447,7 +652,7 @@ export component AppWindow inherits Window {
                             count: root.downloading-count;
                             is-active: root.active-filter == "Downloading";
                             tint: #64D2FF;
-                            clicked => { search-box.clear-focus(); root.active-filter = "Downloading"; root.filter-changed("Downloading"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "Downloading"; root.filter-changed("Downloading"); }
                         }
                         SideItem {
                             label: "Completed";
@@ -455,7 +660,7 @@ export component AppWindow inherits Window {
                             count: root.completed-count;
                             is-active: root.active-filter == "Completed";
                             tint: #30D158;
-                            clicked => { search-box.clear-focus(); root.active-filter = "Completed"; root.filter-changed("Completed"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "Completed"; root.filter-changed("Completed"); }
                         }
                         SideItem {
                             label: "Paused";
@@ -464,7 +669,7 @@ export component AppWindow inherits Window {
                             count: root.paused-count;
                             is-active: root.active-filter == "Paused";
                             tint: #FF9F0A;
-                            clicked => { search-box.clear-focus(); root.active-filter = "Paused"; root.filter-changed("Paused"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "Paused"; root.filter-changed("Paused"); }
                         }
                         SideItem {
                             label: "Queued";
@@ -473,7 +678,7 @@ export component AppWindow inherits Window {
                             count: root.queued-count;
                             is-active: root.active-filter == "Queued";
                             tint: #BF5AF2;
-                            clicked => { search-box.clear-focus(); root.active-filter = "Queued"; root.filter-changed("Queued"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "Queued"; root.filter-changed("Queued"); }
                         }
                         SideItem {
                             label: "Error";
@@ -481,7 +686,7 @@ export component AppWindow inherits Window {
                             count: root.error-count;
                             is-active: root.active-filter == "Error";
                             tint: #FF453A;
-                            clicked => { search-box.clear-focus(); root.active-filter = "Error"; root.filter-changed("Error"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "Error"; root.filter-changed("Error"); }
                         }
                     }
 
@@ -496,7 +701,7 @@ export component AppWindow inherits Window {
                             count: root.count-compressed;
                             is-active: root.active-filter == "cat:compressed";
                             tint: #FF9F0A;
-                            clicked => { search-box.clear-focus(); root.active-filter = "cat:compressed"; root.filter-changed("cat:compressed"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "cat:compressed"; root.filter-changed("cat:compressed"); }
                         }
                         SideItem {
                             label: "Programs";
@@ -504,7 +709,7 @@ export component AppWindow inherits Window {
                             count: root.count-programs;
                             is-active: root.active-filter == "cat:installer";
                             tint: #BF5AF2;
-                            clicked => { search-box.clear-focus(); root.active-filter = "cat:installer"; root.filter-changed("cat:installer"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "cat:installer"; root.filter-changed("cat:installer"); }
                         }
                         SideItem {
                             label: "Video";
@@ -513,7 +718,7 @@ export component AppWindow inherits Window {
                             count: root.count-video;
                             is-active: root.active-filter == "cat:video";
                             tint: #64D2FF;
-                            clicked => { search-box.clear-focus(); root.active-filter = "cat:video"; root.filter-changed("cat:video"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "cat:video"; root.filter-changed("cat:video"); }
                         }
                         SideItem {
                             label: "Music";
@@ -522,7 +727,7 @@ export component AppWindow inherits Window {
                             count: root.count-music;
                             is-active: root.active-filter == "cat:audio";
                             tint: #FF453A;
-                            clicked => { search-box.clear-focus(); root.active-filter = "cat:audio"; root.filter-changed("cat:audio"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "cat:audio"; root.filter-changed("cat:audio"); }
                         }
                         SideItem {
                             label: "Documents";
@@ -530,7 +735,7 @@ export component AppWindow inherits Window {
                             count: root.count-documents;
                             is-active: root.active-filter == "cat:document";
                             tint: #64D2FF;
-                            clicked => { search-box.clear-focus(); root.active-filter = "cat:document"; root.filter-changed("cat:document"); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.active-filter = "cat:document"; root.filter-changed("cat:document"); }
                         }
                     }
 
@@ -561,9 +766,52 @@ export component AppWindow inherits Window {
                         }
 
                         HorizontalLayout {
-                            padding-left: 16px;
+                            padding-left: 14px;
                             padding-right: 16px;
                             spacing: 8px;
+
+                            // Master Select-All toggle button in header
+                            Rectangle {
+                                width: 18px;
+                                height: 18px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 4px;
+                                background: sel-all-touch.has-hover ? Palette.hover-bg : transparent;
+                                border-width: 1px;
+                                border-color: root.selected-count > 0 ? Palette.accent : (sel-all-touch.has-hover ? Palette.border-color : Palette.border-subtle);
+                                animate border-color { duration: 120ms; }
+                                animate background { duration: 120ms; }
+
+                                sel-all-touch := TouchArea {
+                                    clicked => {
+                                        search-box.clear-focus();
+                                        main-focus.focus();
+                                        if root.selected-count == root.downloads.length && root.downloads.length > 0 {
+                                            root.deselect-all-items();
+                                        } else {
+                                            root.select-all-items();
+                                        }
+                                    }
+                                }
+
+                                if root.selected-count == root.downloads.length && root.downloads.length > 0: Icon {
+                                    source: @image-url("../icons/check.svg");
+                                    width: 11px;
+                                    height: 11px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    tint: Palette.accent-light;
+                                }
+
+                                if root.selected-count > 0 && root.selected-count < root.downloads.length: Rectangle {
+                                    width: 8px;
+                                    height: 2px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    background: Palette.accent-light;
+                                    border-radius: 1px;
+                                }
+                            }
 
                             HeaderCol {
                                 text: "FILE NAME";
@@ -687,7 +935,7 @@ export component AppWindow inherits Window {
                                         height: 22px;
                                         y: (parent.height - self.height) / 2;
                                         border-radius: 5px;
-                                        background: col-btn-touch.has-hover ? #252528 : transparent;
+                                        background: col-btn-touch.has-hover ? Palette.hover-bg : transparent;
                                         animate background { duration: 120ms; }
 
                                         Icon {
@@ -696,7 +944,7 @@ export component AppWindow inherits Window {
                                             height: 12px;
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
-                                            tint: root.show-col-menu ? #64D2FF : col-btn-touch.has-hover ? #ffffff : #7C7C80;
+                                            tint: root.show-col-menu ? Palette.accent-light : col-btn-touch.has-hover ? Palette.text-primary : Palette.text-secondary;
                                         }
 
                                         col-btn-touch := TouchArea {
@@ -732,17 +980,17 @@ export component AppWindow inherits Window {
                                         width: 56px;
                                         height: 56px;
                                         border-radius: 28px;
-                                        background: #28282A;
+                                        background: Palette.card-bg;
                                         border-width: 1px;
-                                        border-color: #3A3A3C;
+                                        border-color: Palette.border-subtle;
                                         drop-shadow-blur: 18px;
-                                        drop-shadow-color: #0A84FF55;
+                                        drop-shadow-color: Palette.accent-tint-bg;
 
                                         Icon {
                                             source: @image-url("../icons/download.svg");
                                             width: 24px;
                                             height: 24px;
-                                            tint: #64D2FF;
+                                            tint: Palette.accent-light;
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
                                         }
@@ -753,14 +1001,14 @@ export component AppWindow inherits Window {
                                     text: "No Downloads";
                                     font-size: 15px;
                                     font-weight: 700;
-                                    color: #f5f5f7;
+                                    color: Palette.text-primary;
                                     horizontal-alignment: center;
                                 }
 
                                 Text {
                                     text: "Paste a link or click Add URL to start.";
                                     font-size: 13px;
-                                    color: #98989D;
+                                    color: Palette.text-secondary;
                                     horizontal-alignment: center;
                                 }
 
@@ -789,10 +1037,10 @@ export component AppWindow inherits Window {
                             for item[idx] in downloads: Rectangle {
                                 height: 38px;
                                 border-radius: 8px;
-                                background: (idx == root.selected-index || item.selected) ? #2C2C2E :
-                                            row-touch.has-hover ? #242426 : transparent;
+                                background: (idx == root.selected-index || item.selected) ? Palette.row-selected-bg :
+                                            row-touch.has-hover ? Palette.row-hover-bg : transparent;
                                 border-width: 1px;
-                                border-color: (idx == root.selected-index || item.selected) ? #3A3A3C : transparent;
+                                border-color: (idx == root.selected-index || item.selected) ? Palette.accent : transparent;
                                 animate background { duration: 130ms; easing: ease-out; }
                                 animate border-color { duration: 130ms; }
 
@@ -800,12 +1048,17 @@ export component AppWindow inherits Window {
                                     pointer-event(pe) => {
                                         if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left {
                                             search-box.clear-focus();
+                                            main-focus.focus();
                                             root.show-context-menu = false;
                                             root.context-submenu = 0;
                                             root.row-clicked(idx, pe.modifiers.shift, pe.modifiers.control);
                                         } else if pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right {
                                             search-box.clear-focus();
-                                            root.selected-index = idx;
+                                            main-focus.focus();
+                                            if !item.selected {
+                                                root.selected-index = idx;
+                                                root.row-clicked(idx, false, false);
+                                            }
                                             root.context-id = item.id;
                                             root.context-filename = item.filename;
                                             root.context-status = item.status;
@@ -826,6 +1079,7 @@ export component AppWindow inherits Window {
                                     }
                                     double-clicked => {
                                         search-box.clear-focus();
+                                        main-focus.focus();
                                         root.show-context-menu = false;
                                         root.context-submenu = 0;
                                         root.handle-item-double-click(item);
@@ -848,13 +1102,32 @@ export component AppWindow inherits Window {
                                             width: 18px;
                                             height: 18px;
                                             y: (parent.height - self.height) / 2;
-                                            Icon {
+
+                                            if (item.selected || idx == root.selected-index) && root.selected-count > 1: Rectangle {
+                                                width: 16px;
+                                                height: 16px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                border-radius: 4px;
+                                                background: Palette.accent;
+
+                                                Icon {
+                                                    source: @image-url("../icons/check.svg");
+                                                    width: 10px;
+                                                    height: 10px;
+                                                    x: (parent.width - self.width) / 2;
+                                                    y: (parent.height - self.height) / 2;
+                                                    tint: #ffffff;
+                                                }
+                                            }
+
+                                            if !((item.selected || idx == root.selected-index) && root.selected-count > 1): Icon {
                                                 source: root.type-src(item.file_type);
                                                 width: 16px;
                                                 height: 16px;
                                                 x: (parent.width - self.width) / 2;
                                                 y: (parent.height - self.height) / 2;
-                                                tint: root.type-tint(item.file_type);
+                                                tint: (item.selected || idx == root.selected-index) ? #ffffff : root.type-tint(item.file_type);
                                             }
                                         }
 
@@ -862,7 +1135,7 @@ export component AppWindow inherits Window {
                                             text: item.filename;
                                             font-size: 13px;
                                             font-weight: 500;
-                                            color: #f5f5f7;
+                                            color: (idx == root.selected-index || item.selected) ? #ffffff : Palette.text-primary;
                                             overflow: elide;
                                             horizontal-stretch: 1;
                                             vertical-alignment: center;
@@ -874,7 +1147,7 @@ export component AppWindow inherits Window {
                                         text: item.size;
                                         width: root.col-size-width;
                                         font-size: 12px;
-                                        color: #98989D;
+                                        color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
                                         overflow: elide;
                                         vertical-alignment: center;
                                     }
@@ -889,7 +1162,7 @@ export component AppWindow inherits Window {
                                             horizontal-stretch: 1;
                                             height: 5px;
                                             y: (parent.height - self.height) / 2;
-                                            background: #3A3A3C;
+                                            background: (idx == root.selected-index || item.selected) ? #ffffff33 : Palette.border-color;
                                             border-radius: 3px;
                                             clip: true;
 
@@ -919,7 +1192,7 @@ export component AppWindow inherits Window {
                                             text: item.progress-text;
                                             font-size: 11px;
                                             font-weight: 600;
-                                            color: #c7c7cc;
+                                            color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
                                             horizontal-alignment: end;
                                             vertical-alignment: center;
                                         }
@@ -960,7 +1233,7 @@ export component AppWindow inherits Window {
                                         text: item.status == "completed" ? "—" : (item.eta != "" ? item.eta : "—");
                                         width: root.col-eta-width;
                                         font-size: 12px;
-                                        color: #7C7C80;
+                                        color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
                                         overflow: elide;
                                         vertical-alignment: center;
                                     }
@@ -1207,6 +1480,7 @@ export component AppWindow inherits Window {
                             tint: #30D158;
                             clicked => {
                                 search-box.clear-focus();
+                                main-focus.focus();
                                 if root.selected-count > 1 {
                                     root.resume-selected();
                                 } else if root.first-selected-id != "" {
@@ -1225,6 +1499,7 @@ export component AppWindow inherits Window {
                             tint: #FF9F0A;
                             clicked => {
                                 search-box.clear-focus();
+                                main-focus.focus();
                                 if root.selected-count > 1 {
                                     root.pause-selected();
                                 } else if root.first-selected-id != "" {
@@ -1241,7 +1516,7 @@ export component AppWindow inherits Window {
                             icon-src: @image-url("../icons/stop.svg");
                             tip-text: "Pause All";
                             tint: #FF6B5E;
-                            clicked => { search-box.clear-focus(); root.pause-all(); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.pause-all(); }
                         }
 
                         ToolIcon {
@@ -1251,6 +1526,7 @@ export component AppWindow inherits Window {
                             danger: true;
                             clicked => {
                                 search-box.clear-focus();
+                                main-focus.focus();
                                 if root.selected-count > 1 {
                                     root.confirm-title = "Delete " + root.selected-count + " Downloads";
                                     root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
@@ -1286,6 +1562,7 @@ export component AppWindow inherits Window {
                             tint: #BF5AF2;
                             clicked => {
                                 search-box.clear-focus();
+                                main-focus.focus();
                                 root.confirm-title = "Clear Completed";
                                 root.confirm-message = "Are you sure you want to remove all completed downloads from the list?";
                                 root.confirm-target-id = "";
@@ -1300,7 +1577,7 @@ export component AppWindow inherits Window {
                             icon-src: @image-url("../icons/settings.svg");
                             tip-text: "Browser Integration & Settings";
                             tint: #98989D;
-                            clicked => { search-box.clear-focus(); root.open-settings(); }
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.open-settings(); }
                         }
                     }
 
@@ -1310,6 +1587,7 @@ export component AppWindow inherits Window {
                 search-box := SearchField {
                     text <=> root.search-text;
                     edited(text) => { root.search-changed(text); }
+                    escape-pressed => { main-focus.focus(); }
                 }
             }
         }
@@ -1337,9 +1615,9 @@ export component AppWindow inherits Window {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 border-radius: 14px;
-                background: #242426;
+                background: Palette.modal-bg;
                 border-width: 1px;
-                border-color: #3A3A3C;
+                border-color: Palette.border-color;
                 drop-shadow-blur: 40px;
                 drop-shadow-color: #000000cc;
 
@@ -1359,9 +1637,9 @@ export component AppWindow inherits Window {
                             width: 32px;
                             height: 32px;
                             border-radius: 8px;
-                            background: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A22 : #BF5AF222;
+                            background: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A22 : Palette.accent-tint-bg;
                             border-width: 1px;
-                            border-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A44 : #BF5AF244;
+                            border-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A44 : Palette.border-subtle;
 
                             Icon {
                                 source: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? @image-url("../icons/trash.svg") : @image-url("../icons/alert.svg");
@@ -1369,7 +1647,7 @@ export component AppWindow inherits Window {
                                 height: 16px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF6B5E : #BF5AF2;
+                                tint: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF6B5E : Palette.accent-light;
                             }
                         }
 
@@ -1377,7 +1655,7 @@ export component AppWindow inherits Window {
                             text: root.confirm-title;
                             font-size: 15px;
                             font-weight: 700;
-                            color: #ffffff;
+                            color: Palette.text-primary;
                             horizontal-stretch: 1;
                             vertical-alignment: center;
                         }
@@ -1393,7 +1671,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: root.confirm-message;
                         font-size: 13px;
-                        color: #d1d1d6;
+                        color: Palette.text-secondary;
                         wrap: word-wrap;
                         horizontal-alignment: start;
                     }
@@ -1407,9 +1685,9 @@ export component AppWindow inherits Window {
                             width: 16px;
                             height: 16px;
                             border-radius: 4px;
-                            background: root.confirm-delete-file ? #FF453A : #2E2E32;
+                            background: root.confirm-delete-file ? #FF453A : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: root.confirm-delete-file ? #FF453A : #48484A;
+                            border-color: root.confirm-delete-file ? #FF453A : Palette.border-color;
                             animate background { duration: 120ms; }
 
                             TouchArea {
@@ -1429,7 +1707,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: "Also delete the file from disk";
                             font-size: 11.5px;
-                            color: root.confirm-delete-file ? #FF6B5E : #8E8E93;
+                            color: root.confirm-delete-file ? #FF6B5E : Palette.text-secondary;
                             vertical-alignment: center;
 
                             TouchArea {
@@ -1450,10 +1728,10 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 80px;
                             border-radius: 7px;
-                            background: dec-touch.pressed ? #3A3A3C :
-                                        dec-touch.has-hover ? #323236 : #28282B;
+                            background: dec-touch.pressed ? Palette.hover-bg :
+                                        dec-touch.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: dec-touch.has-hover ? #48484A : #3A3A3C;
+                            border-color: Palette.border-subtle;
                             animate background { duration: 120ms; }
 
                             dec-touch := TouchArea {
@@ -1464,7 +1742,7 @@ export component AppWindow inherits Window {
                                 text: "Decline";
                                 font-size: 12px;
                                 font-weight: 600;
-                                color: dec-touch.has-hover ? #ffffff : #d1d1d6;
+                                color: dec-touch.has-hover ? Palette.text-primary : Palette.text-secondary;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                             }
@@ -1475,11 +1753,11 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 88px;
                             border-radius: 7px;
-                            background: conf-touch.pressed ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #B3261E : #0055B3) :
-                                        conf-touch.has-hover ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF5247 : #2394FF) :
-                                        ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A : #0A84FF);
+                            background: conf-touch.pressed ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #B3261E : Palette.accent-pressed) :
+                                        conf-touch.has-hover ? ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF5247 : Palette.accent-hover) :
+                                        ((root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A : Palette.accent);
                             drop-shadow-blur: conf-touch.has-hover ? 10px : 2px;
-                            drop-shadow-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A55 : #0A84FF55;
+                            drop-shadow-color: (root.confirm-action == "delete" || root.confirm-action == "delete-selected") ? #FF453A55 : Palette.accent-tint-bg;
                             animate background { duration: 120ms; }
 
                             conf-touch := TouchArea {
@@ -1529,9 +1807,9 @@ export component AppWindow inherits Window {
                 width: 185px;
                 height: 220px;
                 border-radius: 10px;
-                background: #1C1C1F;
+                background: Palette.surface-bg;
                 border-width: 1px;
-                border-color: #333338;
+                border-color: Palette.border-color;
                 drop-shadow-blur: 24px;
                 drop-shadow-color: #000000cc;
                 animate x { duration: 120ms; easing: ease-out; }
@@ -1614,9 +1892,9 @@ export component AppWindow inherits Window {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 border-radius: 14px;
-                background: #202023;
+                background: Palette.modal-bg;
                 border-width: 1px;
-                border-color: #38383C;
+                border-color: Palette.border-color;
                 drop-shadow-blur: 40px;
                 drop-shadow-color: #000000cc;
 
@@ -1635,7 +1913,7 @@ export component AppWindow inherits Window {
                             width: 26px;
                             height: 26px;
                             border-radius: 6px;
-                            background: root.details-status == "error" ? #FF453A22 : #0A84FF22;
+                            background: root.details-status == "error" ? #FF453A22 : Palette.accent-tint-bg;
 
                             Icon {
                                 source: root.details-status == "error" ? @image-url("../icons/alert.svg") : @image-url("../icons/file.svg");
@@ -1643,7 +1921,7 @@ export component AppWindow inherits Window {
                                 height: 14px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: root.details-status == "error" ? #FF6B5E : #64D2FF;
+                                tint: root.details-status == "error" ? #FF6B5E : Palette.accent-light;
                             }
                         }
 
@@ -1651,7 +1929,7 @@ export component AppWindow inherits Window {
                             text: root.details-filename != "" ? root.details-filename : "Download Details";
                             font-size: 14px;
                             font-weight: 700;
-                            color: #ffffff;
+                            color: Palette.text-primary;
                             overflow: elide;
                             horizontal-stretch: 1;
                             vertical-alignment: center;
@@ -1697,7 +1975,7 @@ export component AppWindow inherits Window {
                             text: "DOWNLOAD ADDRESS (URL)";
                             font-size: 10px;
                             font-weight: 600;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                             letter-spacing: 0.5px;
                         }
 
@@ -1716,9 +1994,9 @@ export component AppWindow inherits Window {
                                 width: 78px;
                                 height: 30px;
                                 border-radius: 6px;
-                                background: d-cp.has-hover ? #2E2E32 : #252528;
+                                background: d-cp.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                                 border-width: 1px;
-                                border-color: #38383C;
+                                border-color: Palette.border-subtle;
 
                                 d-cp := TouchArea {
                                     clicked => { root.copy-url(root.details-new-url); }
@@ -1728,7 +2006,7 @@ export component AppWindow inherits Window {
                                     text: "Copy URL";
                                     font-size: 11.5px;
                                     font-weight: 500;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
                                 }
@@ -1744,7 +2022,7 @@ export component AppWindow inherits Window {
                             text: "WEB PAGE ADDRESS (SOURCE REFERRER)";
                             font-size: 10px;
                             font-weight: 600;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                             letter-spacing: 0.5px;
                         }
 
@@ -1754,9 +2032,9 @@ export component AppWindow inherits Window {
                             Rectangle {
                                 height: 30px;
                                 border-radius: 6px;
-                                background: #18181A;
+                                background: Palette.input-bg;
                                 border-width: 1px;
-                                border-color: #3A3A3C;
+                                border-color: Palette.border-color;
                                 horizontal-stretch: 1;
 
                                 Text {
@@ -1765,7 +2043,7 @@ export component AppWindow inherits Window {
                                     height: 100%;
                                     text: root.details-referrer;
                                     font-size: 12px;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     overflow: elide;
                                     vertical-alignment: center;
                                 }
@@ -1775,9 +2053,9 @@ export component AppWindow inherits Window {
                                 width: 78px;
                                 height: 30px;
                                 border-radius: 6px;
-                                background: r-cp.has-hover ? #2E2E32 : #252528;
+                                background: r-cp.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                                 border-width: 1px;
-                                border-color: #38383C;
+                                border-color: Palette.border-subtle;
 
                                 r-cp := TouchArea {
                                     clicked => {
@@ -1791,7 +2069,7 @@ export component AppWindow inherits Window {
                                     text: "Copy Page";
                                     font-size: 11.5px;
                                     font-weight: 500;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
                                 }
@@ -1801,7 +2079,7 @@ export component AppWindow inherits Window {
                                 width: 100px;
                                 height: 30px;
                                 border-radius: 6px;
-                                background: r-op.pressed ? #0055B3 : r-op.has-hover ? #2394FF : #0A84FF;
+                                background: r-op.pressed ? Palette.accent-pressed : r-op.has-hover ? Palette.accent-hover : Palette.accent;
                                 animate background { duration: 120ms; }
 
                                 r-op := TouchArea {
@@ -1843,9 +2121,9 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 125px;
                             border-radius: 7px;
-                            background: dt-prop.has-hover ? #2E2E32 : #252528;
+                            background: dt-prop.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: #38383C;
+                            border-color: Palette.border-subtle;
 
                             dt-prop := TouchArea {
                                 clicked => {
@@ -1862,14 +2140,14 @@ export component AppWindow inherits Window {
                                     width: 13px;
                                     height: 13px;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #98989D;
+                                    tint: Palette.text-secondary;
                                 }
 
                                 Text {
                                     text: "Shell Properties";
                                     font-size: 12px;
                                     font-weight: 500;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }
@@ -1879,9 +2157,9 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 76px;
                             border-radius: 7px;
-                            background: dt-cls.has-hover ? #2E2E32 : #252528;
+                            background: dt-cls.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: #38383C;
+                            border-color: Palette.border-subtle;
 
                             dt-cls := TouchArea {
                                 clicked => { root.show-details-modal = false; }
@@ -1891,7 +2169,7 @@ export component AppWindow inherits Window {
                                 text: "Close";
                                 font-size: 12px;
                                 font-weight: 500;
-                                color: #D1D1D6;
+                                color: Palette.text-primary;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                             }
@@ -1901,9 +2179,9 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 136px;
                             border-radius: 7px;
-                            background: dt-ref.pressed ? #0055B3 : dt-ref.has-hover ? #2394FF : #0A84FF;
+                            background: dt-ref.pressed ? Palette.accent-pressed : dt-ref.has-hover ? Palette.accent-hover : Palette.accent;
                             drop-shadow-blur: 8px;
-                            drop-shadow-color: #0A84FF55;
+                            drop-shadow-color: Palette.accent-tint-bg;
                             animate background { duration: 120ms; }
 
                             dt-ref := TouchArea {
@@ -1960,9 +2238,9 @@ export component AppWindow inherits Window {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 border-radius: 14px;
-                background: #202023;
+                background: Palette.modal-bg;
                 border-width: 1px;
-                border-color: #38383C;
+                border-color: Palette.border-color;
                 drop-shadow-blur: 40px;
                 drop-shadow-color: #000000cc;
 
@@ -1981,7 +2259,7 @@ export component AppWindow inherits Window {
                             width: 26px;
                             height: 26px;
                             border-radius: 6px;
-                            background: #64D2FF22;
+                            background: Palette.accent-tint-bg;
 
                             Icon {
                                 source: @image-url("../icons/edit.svg");
@@ -1989,7 +2267,7 @@ export component AppWindow inherits Window {
                                 height: 14px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: #64D2FF;
+                                tint: Palette.accent-light;
                             }
                         }
 
@@ -1997,7 +2275,7 @@ export component AppWindow inherits Window {
                             text: "Move or Rename Download";
                             font-size: 14px;
                             font-weight: 700;
-                            color: #ffffff;
+                            color: Palette.text-primary;
                             overflow: elide;
                             horizontal-stretch: 1;
                             vertical-alignment: center;
@@ -2018,7 +2296,7 @@ export component AppWindow inherits Window {
                             text: "FILE NAME";
                             font-size: 10px;
                             font-weight: 600;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                             letter-spacing: 0.5px;
                         }
 
@@ -2038,7 +2316,7 @@ export component AppWindow inherits Window {
                             text: "MOVE TO FOLDER (OPTIONAL)";
                             font-size: 10px;
                             font-weight: 600;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                             letter-spacing: 0.5px;
                         }
 
@@ -2057,9 +2335,9 @@ export component AppWindow inherits Window {
                                 width: 85px;
                                 height: 30px;
                                 border-radius: 6px;
-                                background: ren-brw.has-hover ? #2E2E32 : #252528;
+                                background: ren-brw.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                                 border-width: 1px;
-                                border-color: #38383C;
+                                border-color: Palette.border-subtle;
 
                                 ren-brw := TouchArea {
                                     clicked => {
@@ -2074,7 +2352,7 @@ export component AppWindow inherits Window {
                                     text: "Browse…";
                                     font-size: 11.5px;
                                     font-weight: 500;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
                                 }
@@ -2093,9 +2371,9 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 76px;
                             border-radius: 7px;
-                            background: ren-cancel.has-hover ? #2E2E32 : #252528;
+                            background: ren-cancel.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: #38383C;
+                            border-color: Palette.border-subtle;
 
                             ren-cancel := TouchArea {
                                 clicked => { root.show-rename-modal = false; }
@@ -2105,7 +2383,7 @@ export component AppWindow inherits Window {
                                 text: "Cancel";
                                 font-size: 12px;
                                 font-weight: 500;
-                                color: #D1D1D6;
+                                color: Palette.text-primary;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                             }
@@ -2115,9 +2393,9 @@ export component AppWindow inherits Window {
                             height: 32px;
                             min-width: 110px;
                             border-radius: 7px;
-                            background: ren-save.pressed ? #0055B3 : ren-save.has-hover ? #2394FF : #0A84FF;
+                            background: ren-save.pressed ? Palette.accent-pressed : ren-save.has-hover ? Palette.accent-hover : Palette.accent;
                             drop-shadow-blur: 8px;
-                            drop-shadow-color: #0A84FF55;
+                            drop-shadow-color: Palette.accent-tint-bg;
                             animate background { duration: 120ms; }
 
                             ren-save := TouchArea {
@@ -2185,11 +2463,11 @@ export component AppWindow inherits Window {
                 x: root.show-context-menu ? root.context-menu-x : root.context-menu-origin-x;
                 y: root.show-context-menu ? root.context-menu-y : root.context-menu-origin-y;
                 width: root.show-context-menu ? 236px : 0px;
-                height: root.show-context-menu ? 426px : 0px;
+                height: root.show-context-menu ? (root.selected-count > 1 ? 236px : 495px) : 0px;
                 border-radius: 10px;
-                background: #18181B;
+                background: Palette.surface-bg;
                 border-width: root.show-context-menu ? 1px : 0px;
-                border-color: #2E2E34;
+                border-color: Palette.border-color;
                 drop-shadow-blur: root.show-context-menu ? 28px : 0px;
                 drop-shadow-color: #000000dd;
                 clip: true;
@@ -2207,9 +2485,101 @@ export component AppWindow inherits Window {
                     x: 0px;
                     y: 0px;
                     width: 236px;
-                    height: 426px;
+                    height: root.selected-count > 1 ? 236px : 495px;
 
-                    VerticalLayout {
+                    // Batch Multi-Selection Menu
+                    if root.selected-count > 1: VerticalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        padding-top: 6px;
+                        padding-bottom: 6px;
+                        spacing: 1px;
+                        alignment: start;
+
+                        ContextMenuItem {
+                            label: "Resume Selected (" + root.selected-count + ")";
+                            icon-src: @image-url("../icons/play.svg");
+                            tint: #30D158;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.resume-selected();
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Stop Selected (" + root.selected-count + ")";
+                            icon-src: @image-url("../icons/pause.svg");
+                            tint: #FF9F0A;
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.pause-selected();
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Remove Selected (" + root.selected-count + ")";
+                            icon-src: @image-url("../icons/trash.svg");
+                            tint: #FF453A;
+                            danger: true;
+                            shortcut: "Del";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.confirm-title = "Delete " + root.selected-count + " Downloads";
+                                root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
+                                root.confirm-target-id = "";
+                                root.confirm-action = "delete-selected";
+                                root.confirm-show-delete-file-option = true;
+                                root.confirm-delete-file = false;
+                                root.show-confirm = true;
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Copy Links (" + root.selected-count + ")";
+                            icon-src: @image-url("../icons/copy.svg");
+                            tint: #64D2FF;
+                            shortcut: "Ctrl+C";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.copy-url("");
+                            }
+                        }
+
+                        ContextMenuSeparator {}
+
+                        ContextMenuItem {
+                            label: "Select All";
+                            icon-src: @image-url("../icons/layers.svg");
+                            tint: #BF5AF2;
+                            shortcut: "Ctrl+A";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.select-all-items();
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Deselect All";
+                            icon-src: @image-url("../icons/x.svg");
+                            tint: #98989D;
+                            shortcut: "Esc";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.deselect-all-items();
+                            }
+                        }
+                    }
+
+                    // Single Item Menu
+                    if root.selected-count <= 1: VerticalLayout {
                         padding-left: 6px;
                         padding-right: 6px;
                         padding-top: 6px;
@@ -2256,10 +2626,23 @@ export component AppWindow inherits Window {
                         ContextMenuSeparator {}
 
                         ContextMenuItem {
+                            label: "Copy Download Link";
+                            icon-src: @image-url("../icons/copy.svg");
+                            tint: #64D2FF;
+                            shortcut: "Ctrl+C";
+                            enabled: root.context-url != "";
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.copy-url(root.context-url);
+                            }
+                        }
+
+                        ContextMenuItem {
                             label: "Move/Rename";
                             icon-src: @image-url("../icons/edit.svg");
                             tint: #64D2FF;
-                            shortcut: "Ctrl+M";
+                            shortcut: "F2 / Ctrl+M";
                             enabled: true;
                             clicked => {
                                 root.show-context-menu = false;
@@ -2272,6 +2655,7 @@ export component AppWindow inherits Window {
                             label: "Redownload";
                             icon-src: @image-url("../icons/refresh.svg");
                             tint: #30D158;
+                            shortcut: "Ctrl+R";
                             enabled: true;
                             clicked => {
                                 root.show-context-menu = false;
@@ -2284,6 +2668,7 @@ export component AppWindow inherits Window {
                             label: "Resume Download";
                             icon-src: @image-url("../icons/play.svg");
                             tint: #30D158;
+                            shortcut: "Space";
                             enabled: root.context-status == "paused" || root.context-status == "queued" || root.context-status == "error";
                             clicked => {
                                 root.show-context-menu = false;
@@ -2296,6 +2681,7 @@ export component AppWindow inherits Window {
                             label: "Stop Download";
                             icon-src: @image-url("../icons/pause.svg");
                             tint: #FF9F0A;
+                            shortcut: "Space";
                             enabled: root.context-status == "downloading" || root.context-status == "connecting";
                             clicked => {
                                 root.show-context-menu = false;
@@ -2373,9 +2759,23 @@ export component AppWindow inherits Window {
                         ContextMenuSeparator {}
 
                         ContextMenuItem {
+                            label: "Select All";
+                            icon-src: @image-url("../icons/layers.svg");
+                            tint: #BF5AF2;
+                            shortcut: "Ctrl+A";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.select-all-items();
+                            }
+                        }
+
+                        ContextMenuItem {
                             label: "Properties";
                             icon-src: @image-url("../icons/settings.svg");
                             tint: #98989D;
+                            shortcut: "Alt+Enter";
                             enabled: true;
                             clicked => {
                                 root.show-context-menu = false;
@@ -2397,9 +2797,9 @@ export component AppWindow inherits Window {
                 height: root.context-submenu == 1 ? 125px : 0px;
                 opacity: root.context-submenu == 1 ? 1 : 0;
                 border-radius: 9px;
-                background: #18181B;
+                background: Palette.surface-bg;
                 border-width: root.context-submenu == 1 ? 1px : 0px;
-                border-color: #2E2E34;
+                border-color: Palette.border-color;
                 drop-shadow-blur: root.context-submenu == 1 ? 24px : 0px;
                 drop-shadow-color: #000000dd;
                 clip: true;
@@ -2484,9 +2884,9 @@ export component AppWindow inherits Window {
                 height: root.context-submenu == 2 ? 155px : 0px;
                 opacity: root.context-submenu == 2 ? 1 : 0;
                 border-radius: 9px;
-                background: #18181B;
+                background: Palette.surface-bg;
                 border-width: root.context-submenu == 2 ? 1px : 0px;
-                border-color: #2E2E34;
+                border-color: Palette.border-color;
                 drop-shadow-blur: root.context-submenu == 2 ? 24px : 0px;
                 drop-shadow-color: #000000dd;
                 clip: true;

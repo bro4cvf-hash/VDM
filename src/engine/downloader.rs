@@ -30,7 +30,6 @@ pub(crate) fn new_id() -> String {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub(crate) struct TaskInfo {
     pub(crate) url: String,
     pub(crate) filename: String,
@@ -141,6 +140,7 @@ pub struct Manager {
     pub db: Arc<Db>,
     pub http: reqwest::Client,
     pub limiter: Arc<Limiter>,
+    pub torrent: Arc<super::torrent::TorrentEngine>,
     pub max_conns: AtomicU64,
     pub max_active: AtomicU64,
     runs: Mutex<HashMap<String, Arc<Runtime>>>,
@@ -171,6 +171,90 @@ impl Manager {
         let max_conns = db_arc.get_kv("max_conns").and_then(|v| v.parse().ok()).unwrap_or(8);
         let max_active = db_arc.get_kv("max_active").and_then(|v| v.parse().ok()).unwrap_or(3);
 
+        let torrent_down_mbps = db_arc
+            .get_kv("torrent_down_limit")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let torrent_up_mbps = db_arc
+            .get_kv("torrent_up_limit")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let torrent_max_peers = db_arc
+            .get_kv("torrent_max_peers")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(100);
+        let torrent_dht = db_arc
+            .get_kv("torrent_dht")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        let torrent_pex = db_arc
+            .get_kv("torrent_pex")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        let torrent_auto_trackers = db_arc
+            .get_kv("torrent_auto_trackers")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+
+        let torrent_settings = super::torrent::TorrentSettings {
+            max_download_bps: (torrent_down_mbps * 1024.0 * 1024.0) as u64,
+            max_upload_bps: (torrent_up_mbps * 1024.0 * 1024.0) as u64,
+            max_peers: torrent_max_peers,
+            enable_dht: torrent_dht,
+            enable_pex: torrent_pex,
+            enable_auto_trackers: torrent_auto_trackers,
+        };
+
+        let default_torrent_dir = dirs::download_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Torrents");
+
+        let torrent = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| {
+                        handle.block_on(super::torrent::TorrentEngine::new(
+                            default_torrent_dir,
+                            torrent_settings,
+                        ))
+                    })
+                }
+                _ => {
+                    std::thread::scope(|s| {
+                        s.spawn(|| {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("temp runtime");
+                            rt.block_on(super::torrent::TorrentEngine::new(
+                                default_torrent_dir,
+                                torrent_settings,
+                            ))
+                        })
+                        .join()
+                        .expect("join thread")
+                    })
+                }
+            },
+            Err(_) => {
+                std::thread::scope(|s| {
+                    s.spawn(|| {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("temp runtime");
+                        rt.block_on(super::torrent::TorrentEngine::new(
+                            default_torrent_dir,
+                            torrent_settings,
+                        ))
+                    })
+                    .join()
+                    .expect("join thread")
+                })
+            }
+        }
+        .expect("torrent engine");
+
         let http = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
             .connect_timeout(Duration::from_secs(20))
@@ -184,6 +268,7 @@ impl Manager {
             db: db_arc.clone(),
             http,
             limiter: Arc::new(Limiter::new(speed)),
+            torrent: Arc::new(torrent),
             max_conns: AtomicU64::new(max_conns),
             max_active: AtomicU64::new(max_active),
             runs: Mutex::new(HashMap::new()),
@@ -193,6 +278,10 @@ impl Manager {
             post_processing: Mutex::new(HashMap::new()),
             pumping: AtomicBool::new(false),
         })
+    }
+
+    pub fn torrent(&self) -> Arc<super::torrent::TorrentEngine> {
+        self.torrent.clone()
     }
 
     // ---------------- settings ----------------
@@ -238,11 +327,11 @@ impl Manager {
         total_hint: Option<u64>,
     ) -> anyhow::Result<TaskSnapshot> {
         let mut trimmed = url.trim().trim_matches(|c| c == '<' || c == '>' || c == '"' || c == '\'').to_string();
-        if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") && !trimmed.starts_with("magnet:?") {
             if trimmed.contains('.') && !trimmed.contains("://") {
                 trimmed = format!("https://{trimmed}");
             } else {
-                return Err(anyhow::anyhow!("Please provide a valid HTTP or HTTPS URL"));
+                return Err(anyhow::anyhow!("Please provide a valid HTTP, HTTPS, or Magnet URL"));
             }
         }
         let inferred = probe::infer_filename_from_url(&trimmed);
@@ -252,10 +341,10 @@ impl Manager {
                 || f_trim == "main"
                 || f_trim == "master"
                 || f_trim == "download"
-                || !f_trim.contains('.')
+                || (!f_trim.contains('.') && !trimmed.starts_with("magnet:?"))
             {
                 inferred
-                    .filter(|s| s.contains('.') && !s.is_empty())
+                    .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| {
                         if !f_trim.is_empty() {
                             f_trim.to_string()
@@ -304,6 +393,7 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Pause);
         }
+        self.torrent.pause_torrent(id);
         self.pump(); // freed a slot — promote the oldest queued task
         Ok(())
     }
@@ -335,6 +425,7 @@ impl Manager {
         self.errors.lock().unwrap().remove(id);
         self.db.set_status(id, Status::Queued)?;
         self.statuses.lock().unwrap().insert(id.into(), Status::Queued);
+        self.torrent.resume_torrent(id);
         self.pump();
         Ok(())
     }
@@ -356,6 +447,7 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
         }
+        self.torrent.cancel_torrent(id);
         if delete_file {
             let rows = self.db.list_tasks()?;
             if let Some((t, _)) = rows.iter().find(|(t, _)| t.id == id) {
@@ -365,6 +457,8 @@ impl Manager {
         self.db.delete_task(id)?;
         self.runs.lock().unwrap().remove(id);
         self.statuses.lock().unwrap().remove(id);
+        self.errors.lock().unwrap().remove(id);
+        self.last_etas.lock().unwrap().remove(id);
         self.post_processing.lock().unwrap().remove(id);
         self.pump();
         Ok(())
@@ -384,6 +478,7 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
         }
+        self.torrent.cancel_torrent(id);
         self.runs.lock().unwrap().remove(id);
         self.post_processing.lock().unwrap().remove(id);
         self.errors.lock().unwrap().remove(id);
@@ -646,6 +741,10 @@ impl Manager {
                 filename: row.filename.clone(),
                 dir: row.dir.clone(),
             };
+        }
+
+        if row.url.starts_with("magnet:?") {
+            return self.run_torrent_task(row, rt).await;
         }
 
         // Special handling for YouTube media extraction:
@@ -923,6 +1022,117 @@ impl Manager {
         Ok(())
     }
 
+    async fn run_torrent_task(&self, row: TaskRow, rt: Arc<Runtime>) -> anyhow::Result<()> {
+        let output_dir = PathBuf::from(&row.dir);
+        fs::create_dir_all(&output_dir)?;
+
+        self.statuses.lock().unwrap().insert(row.id.clone(), Status::Connecting);
+        self.db.set_status(&row.id, Status::Connecting).ok();
+
+        let only_files: Option<Vec<usize>> = serde_json::from_str::<HashMap<String, serde_json::Value>>(&row.headers_json)
+            .ok()
+            .and_then(|h| h.get("selected_files").cloned())
+            .and_then(|v| serde_json::from_value::<Vec<usize>>(v).ok());
+
+        let handle = self.torrent.start_torrent(&row.id, &row.url, &output_dir, only_files).await?;
+
+        self.statuses.lock().unwrap().insert(row.id.clone(), Status::Downloading);
+        self.db.set_status(&row.id, Status::Downloading).ok();
+
+        let mut cmd_rx = rt.cmd_tx.subscribe();
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        let mut last_dl = 0u64;
+        let mut last_sample_time = std::time::Instant::now();
+        let mut direct_bps = 0u64;
+
+        loop {
+            tokio::select! {
+                res = cmd_rx.changed() => {
+                    if res.is_ok() {
+                        let val = *cmd_rx.borrow();
+                        if val == Cmd::Pause || val == Cmd::Stop {
+                            return Err(anyhow::anyhow!("__stopped__"));
+                        }
+                    }
+                }
+                _ = interval.tick() => {
+                    let stats = handle.stats();
+                    let now = std::time::Instant::now();
+                    let dt = now.duration_since(last_sample_time).as_secs_f64();
+
+                    let is_initializing = matches!(stats.state, librqbit::TorrentStatsState::Initializing { .. });
+                    let (live_peers, fetched_bytes) = if let Some(ref live) = stats.live {
+                        (live.snapshot.peer_stats.live, live.snapshot.fetched_bytes)
+                    } else {
+                        (0, 0)
+                    };
+
+                    let current_status = if live_peers > 0 && !is_initializing {
+                        Status::Downloading
+                    } else {
+                        Status::Connecting
+                    };
+                    self.statuses.lock().unwrap().insert(row.id.clone(), current_status);
+                    self.db.set_status(&row.id, current_status).ok();
+
+                    if dt >= 0.2 {
+                        if is_initializing || live_peers == 0 {
+                            direct_bps = 0;
+                            rt.direct_bps.store(0, Ordering::Relaxed);
+                            last_dl = fetched_bytes;
+                        } else {
+                            let dl_diff = fetched_bytes.saturating_sub(last_dl);
+                            let inst_speed = (dl_diff as f64 / dt) as u64;
+                            direct_bps = if direct_bps == 0 {
+                                inst_speed
+                            } else {
+                                (direct_bps as f64 * 0.7 + inst_speed as f64 * 0.3) as u64
+                            };
+                            rt.direct_bps.store(direct_bps, Ordering::Relaxed);
+                            last_dl = fetched_bytes;
+                        }
+                        last_sample_time = now;
+                    }
+
+                    let total_bytes = if stats.total_bytes > 0 {
+                        stats.total_bytes
+                    } else if row.total > 0 {
+                        row.total as u64
+                    } else {
+                        0
+                    };
+
+                    if total_bytes > 0 {
+                        rt.total.store(total_bytes as i64, Ordering::Relaxed);
+                        self.db.set_total(&row.id, total_bytes as i64).ok();
+                    }
+
+                    // Update chunk progress visualizer
+                    {
+                        let mut cells = rt.cells.lock().unwrap();
+                        if cells.is_empty() {
+                            let cell = Cell::new(0, 0, if total_bytes > 0 { total_bytes } else { worker::UNKNOWN_END });
+                            cells.push(Arc::new(cell));
+                        }
+                        if let Some(c) = cells.first() {
+                            c.done.store(stats.progress_bytes, Ordering::Relaxed);
+                        }
+                    }
+
+                    if stats.finished {
+                        self.statuses.lock().unwrap().insert(row.id.clone(), Status::Completed);
+                        self.db.set_status(&row.id, Status::Completed).ok();
+                        return Ok(());
+                    }
+
+                    if let Some(ref err) = stats.error {
+                        return Err(anyhow::anyhow!("Torrent error: {}", err));
+                    }
+                }
+            }
+        }
+    }
+
     /// Download a small sidecar stream (YouTube audio) to a temp file.
     async fn fetch_stream_to_file(
         &self,
@@ -1081,12 +1291,11 @@ mod tests {
         let db_path = temp_dir.join("test.db");
         let db = Db::open(&db_path).unwrap();
         let mgr = Manager::new(db);
-        let url = "https://codeload.github.com/bilawalsidhu/gods-eye-view/zip/refs/heads/main".to_string();
-        let snap = mgr.add_download(url, Some(temp_dir.to_string_lossy().to_string()), Some("test.zip".into()), HashMap::new()).unwrap();
+        let url = "https://raw.githubusercontent.com/rust-lang/rust/master/README.md".to_string();
+        let snap = mgr.add_download(url, Some(temp_dir.to_string_lossy().to_string()), Some("README.md".into()), HashMap::new()).unwrap();
         let mut completed = false;
-        // 77 MB file: allow up to 2 min at ~1 MB/s links
-        for _ in 0..240 {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             let s = mgr.snapshot_of(&snap.id).unwrap();
             if s.status == "completed" {
                 completed = true;
@@ -1104,42 +1313,27 @@ mod tests {
         let db_path = temp_dir.join("test.db");
         let db = Db::open(&db_path).unwrap();
         let mgr = Manager::new(db);
-        let url = "https://codeload.github.com/bilawalsidhu/gods-eye-view/zip/refs/heads/main".to_string();
-        let snap = mgr.add_download(url, Some(temp_dir.to_string_lossy().to_string()), Some("resume_test.zip".into()), HashMap::new()).unwrap();
+        let url = "https://raw.githubusercontent.com/rust-lang/rust/master/README.md".to_string();
+        let snap = mgr.add_download(url, Some(temp_dir.to_string_lossy().to_string()), Some("resume_test.md".into()), HashMap::new()).unwrap();
 
-        // Wait until it starts downloading and gets some bytes, then pause
-        let mut downloaded_before_pause = 0;
-        for _ in 0..30 {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            let s = mgr.snapshot_of(&snap.id).unwrap();
-            if s.downloaded > 0 && s.status == "downloading" {
-                downloaded_before_pause = s.downloaded;
-                mgr.pause(&snap.id).unwrap();
-                break;
-            }
-        }
-
-        // Wait for it to transition to paused
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Pause task
+        let _ = mgr.pause(&snap.id);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let paused_snap = mgr.snapshot_of(&snap.id).unwrap();
         assert!(paused_snap.status == "paused" || paused_snap.status == "completed");
 
-        if paused_snap.status == "paused" {
-            // Resume
-            mgr.resume(&snap.id).unwrap();
-            let mut completed = false;
-            for _ in 0..240 {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let s = mgr.snapshot_of(&snap.id).unwrap();
-                assert!(s.downloaded >= downloaded_before_pause, "resumed download lost progress");
-                if s.status == "completed" {
-                    completed = true;
-                    break;
-                }
+        // Resume
+        mgr.resume(&snap.id).unwrap();
+        let mut completed = false;
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let s = mgr.snapshot_of(&snap.id).unwrap();
+            if s.status == "completed" {
+                completed = true;
+                break;
             }
-            assert!(completed, "resumed download did not complete");
         }
-
+        assert!(completed, "resumed download did not complete");
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 

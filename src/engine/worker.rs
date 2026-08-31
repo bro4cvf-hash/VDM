@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
 pub const MIN_SPLIT: u64 = 1024 * 1024; // don't bother splitting < 2 MiB remainders
+const MAX_CELLS: usize = 128;
 const PERSIST_EVERY: u64 = 256 * 1024; // persist progress every 256 KB
 const MAX_CONSECUTIVE_FAILURES: u32 = 6;
 
@@ -124,6 +125,11 @@ fn claim_or_steal(ctx: &WorkerCtx) -> Option<Arc<Cell>> {
     }
 
     // pass 2: split largest remainder of an ACTIVE cell and become its thief
+    // ponytail: cap adaptive cells; otherwise large files grow toward one cell per MiB,
+    // making every snapshot and chunk-table rewrite increasingly expensive.
+    if guard.len() >= MAX_CELLS {
+        return None;
+    }
     let mut best_idx: Option<usize> = None;
     let mut best_rem = MIN_SPLIT * 2;
     for (i, c) in guard.iter().enumerate() {

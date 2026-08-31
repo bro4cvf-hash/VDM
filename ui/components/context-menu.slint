@@ -1,10 +1,11 @@
 import { Icon } from "icon.slint";
+import { Palette } from "../theme.slint";
 
 // -- macOS Sonoma / Apple HIG Context Menu Row --
 export component ContextMenuItem inherits Rectangle {
     in property <string> label: "";
     in property <image> icon-src;
-    in property <color> tint: #98989D;
+    in property <color> tint: Palette.text-secondary;
     in property <string> shortcut: "";
     in property <bool> enabled: true;
     in property <bool> danger: false;
@@ -17,11 +18,11 @@ export component ContextMenuItem inherits Rectangle {
     border-radius: 6px;
     background: !root.enabled ? transparent :
                 root.danger && touch.has-hover ? #FF453A22 :
-                touch.has-hover || root.is-active ? #2A2A30 : transparent;
+                touch.has-hover || root.is-active ? Palette.hover-bg : transparent;
     border-width: 1px;
     border-color: !root.enabled ? transparent :
                   root.danger && touch.has-hover ? #FF453A44 :
-                  touch.has-hover || root.is-active ? #383840 : transparent;
+                  touch.has-hover || root.is-active ? Palette.border-color : transparent;
     x: (touch.has-hover && root.enabled) || root.is-active ? 2px : 0px;
 
     animate background { duration: 120ms; easing: ease-out; }
@@ -46,9 +47,9 @@ export component ContextMenuItem inherits Rectangle {
                 height: 14px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: !root.enabled ? #55555A :
+                tint: !root.enabled ? Palette.text-muted :
                       root.danger && touch.has-hover ? #FF6B5E :
-                      touch.has-hover || root.is-active ? #FFFFFF : root.tint;
+                      touch.has-hover || root.is-active ? Palette.text-primary : root.tint;
                 animate tint { duration: 120ms; }
             }
         }
@@ -58,9 +59,9 @@ export component ContextMenuItem inherits Rectangle {
             text: root.label;
             font-size: 12px;
             font-weight: !root.enabled ? 400 : (touch.has-hover || root.is-active ? 600 : 500);
-            color: !root.enabled ? #55555A :
+            color: !root.enabled ? Palette.text-muted :
                    root.danger && touch.has-hover ? #FF6B5E :
-                   touch.has-hover || root.is-active ? #FFFFFF : #D1D1D6;
+                   touch.has-hover || root.is-active ? Palette.text-primary : Palette.text-secondary;
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;
@@ -79,7 +80,7 @@ export component ContextMenuItem inherits Rectangle {
                 height: 10px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: !root.enabled ? #444448 : touch.has-hover || root.is-active ? #FFFFFF : #7C7C80;
+                tint: !root.enabled ? Palette.text-muted : touch.has-hover || root.is-active ? Palette.text-primary : Palette.text-tertiary;
                 animate tint { duration: 120ms; }
             }
         }
@@ -88,7 +89,7 @@ export component ContextMenuItem inherits Rectangle {
             text: root.shortcut;
             font-size: 10.5px;
             font-weight: 500;
-            color: !root.enabled ? #444448 : touch.has-hover ? #A1A1A6 : #6E6E73;
+            color: !root.enabled ? Palette.text-muted : touch.has-hover ? Palette.text-primary : Palette.text-tertiary;
             vertical-alignment: center;
             animate color { duration: 120ms; }
         }
@@ -108,7 +109,7 @@ export component ContextMenuSeparator inherits Rectangle {
         y: 3px;
         height: 1px;
         width: 100%;
-        background: #2A2A2E;
+        background: Palette.border-subtle;
     }
 }
 
@@ -118,14 +119,14 @@ export component SubmenuItem inherits Rectangle {
     in property <bool> is-selected: false;
     in property <image> icon-src;
     in property <bool> has-icon: false;
-    in property <color> tint: #98989D;
+    in property <color> tint: Palette.text-secondary;
     callback clicked();
 
     height: 28px;
     border-radius: 6px;
-    background: touch.has-hover ? #2A2A30 : transparent;
+    background: touch.has-hover ? Palette.hover-bg : transparent;
     border-width: 1px;
-    border-color: touch.has-hover ? #383840 : transparent;
+    border-color: touch.has-hover ? Palette.border-color : transparent;
     x: touch.has-hover ? 2px : 0px;
 
     animate background { duration: 120ms; easing: ease-out; }
@@ -149,7 +150,7 @@ export component SubmenuItem inherits Rectangle {
                 height: 13px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: touch.has-hover ? #FFFFFF : root.tint;
+                tint: touch.has-hover ? Palette.text-primary : root.tint;
                 animate tint { duration: 120ms; }
             }
         }
@@ -165,7 +166,7 @@ export component SubmenuItem inherits Rectangle {
                 height: 11px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: #0A84FF;
+                tint: Palette.accent;
             }
         }
 
@@ -177,7 +178,7 @@ export component SubmenuItem inherits Rectangle {
             text: root.label;
             font-size: 12px;
             font-weight: touch.has-hover ? 600 : (root.is-selected ? 600 : 450);
-            color: touch.has-hover ? #FFFFFF : (root.is-selected ? #0A84FF : #D1D1D6);
+            color: touch.has-hover ? Palette.text-primary : (root.is-selected ? Palette.accent : Palette.text-secondary);
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;

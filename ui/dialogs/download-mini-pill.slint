@@ -1,4 +1,5 @@
 import { Icon } from "../components/icon.slint";
+import { Palette } from "../theme.slint";
 
 // ════════════════════════════════════════════════
 // Floating Mini-Pill (Dock / Tray Morph Widget)
@@ -26,9 +27,9 @@ export component DownloadMiniPill inherits Window {
         x: 0;
         y: 0;
         border-radius: 10px;
-        background: #18181B;
+        background: Palette.modal-bg;
         border-width: 1px;
-        border-color: #323236;
+        border-color: Palette.border-color;
         clip: true;
 
         TouchArea {
@@ -65,7 +66,7 @@ export component DownloadMiniPill inherits Window {
                     height: 28px;
                     y: (parent.height - self.height) / 2;
                     border-radius: 6px;
-                    background: #0A84FF22;
+                    background: Palette.accent-tint-bg;
 
                     Icon {
                         source: @image-url("../icons/zap.svg");
@@ -73,7 +74,7 @@ export component DownloadMiniPill inherits Window {
                         height: 14px;
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
-                        tint: #0A84FF;
+                        tint: Palette.accent;
                     }
                 }
 
@@ -86,7 +87,7 @@ export component DownloadMiniPill inherits Window {
                         text: root.filename;
                         font-size: 12px;
                         font-weight: 600;
-                        color: #FFFFFF;
+                        color: Palette.text-primary;
                         overflow: elide;
                     }
 
@@ -96,12 +97,12 @@ export component DownloadMiniPill inherits Window {
                             text: root.percent-text;
                             font-size: 11px;
                             font-weight: 700;
-                            color: #30D158;
+                            color: Palette.success;
                         }
                         Text {
                             text: "• " + root.speed;
                             font-size: 10.5px;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                         }
                     }
                 }
@@ -111,7 +112,7 @@ export component DownloadMiniPill inherits Window {
             Rectangle {
                 height: 3px;
                 border-radius: 1.5px;
-                background: #28282C;
+                background: Palette.input-bg;
                 clip: true;
 
                 Rectangle {
@@ -119,10 +120,11 @@ export component DownloadMiniPill inherits Window {
                     y: 0;
                     width: parent.width * Math.max(0.0, Math.min(1.0, root.progress));
                     height: 100%;
-                    background: @linear-gradient(90deg, #0A84FF, #30D158);
+                    background: @linear-gradient(90deg, Palette.accent-gradient-start, Palette.accent-gradient-end);
                     animate width { duration: 150ms; }
                 }
             }
         }
     }
 }
+

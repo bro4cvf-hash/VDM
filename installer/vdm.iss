@@ -2,7 +2,7 @@
 ; Build: scripts\build-installer.ps1 (or ISCC installer\vdm.iss after cargo build --release)
 
 #define MyAppName "VDM Downloader"
-#define MyAppVersion "0.4.0"
+#define MyAppVersion "0.5.0"
 #define MyAppPublisher "VDM Contributors"
 #define MyAppExeName "vdm.exe"
 

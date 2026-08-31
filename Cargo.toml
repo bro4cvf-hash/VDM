@@ -1,6 +1,6 @@
 [package]
 name = "vdm"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Visk Download Manager (VDM) - High-performance native download manager (Rust + Slint)"
 authors = ["VDM Team"]
@@ -34,6 +34,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Registry",
     "Win32_Graphics_Gdi",
 ] }
+librqbit = { version = "9.0.1", default-features = false }
+librqbit-core = { version = "9.0.1", default-features = false, features = ["sha1-ring"] }
+librqbit-sha1-wrapper = { version = "9.0.1", default-features = false, features = ["sha1-ring"] }
+urlencoding = "2.1"
 
 [build-dependencies]
 slint-build = "1.12"

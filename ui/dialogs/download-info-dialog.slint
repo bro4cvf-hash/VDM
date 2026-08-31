@@ -1,6 +1,7 @@
 import { Icon } from "../components/icon.slint";
 import { CaptionBtn } from "../components/buttons.slint";
 import { Field } from "../components/inputs.slint";
+import { Palette } from "../theme.slint";
 
 // ════════════════════════════════════════════════
 // Download File Info Dialog (IDM-style Modern Glass)
@@ -43,9 +44,9 @@ export component DownloadInfoDialog inherits Window {
         width: 100%;
         height: 100%;
         border-radius: 12px;
-        background: #18181A;
+        background: Palette.modal-bg;
         border-width: 1px;
-        border-color: #2E2E32;
+        border-color: Palette.border-color;
         clip: true;
 
         VerticalLayout {
@@ -95,7 +96,7 @@ export component DownloadInfoDialog inherits Window {
                             text: "Download File Info";
                             font-size: 12.5px;
                             font-weight: 600;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             vertical-alignment: center;
                         }
                     }
@@ -136,9 +137,9 @@ export component DownloadInfoDialog inherits Window {
                         width: 32px;
                         height: 32px;
                         border-radius: 7px;
-                        background: #202024;
+                        background: Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: #303034;
+                        border-color: Palette.border-subtle;
 
                         if root.has-sys-icon: Image {
                             source: root.file-icon;
@@ -162,7 +163,7 @@ export component DownloadInfoDialog inherits Window {
                             tint: root.file-type == "video" ? #AF52DE :
                                   root.file-type == "audio" ? #30D158 :
                                   root.file-type == "archive" ? #FF9F0A :
-                                  root.file-type == "installer" ? #0A84FF :
+                                  root.file-type == "installer" ? Palette.accent :
                                   root.file-type == "image" ? #64D2FF : #FF6B5E;
                         }
                     }
@@ -174,11 +175,12 @@ export component DownloadInfoDialog inherits Window {
                         radius: 6px;
                         pad-x: 10px;
                         placeholder: "Filename...";
-                        text <=> root.filename;
+                        text: root.filename;
                         horizontal-stretch: 1;
                         edited(t) => {
+                            root.filename = t;
                             root.filename-edited(t);
-                            root.save-as = root.folder + "\\" + t;
+                            root.save-as = root.folder + "/" + t;
                         }
                     }
 
@@ -186,9 +188,9 @@ export component DownloadInfoDialog inherits Window {
                     Rectangle {
                         height: 32px;
                         border-radius: 6px;
-                        background: #202024;
+                        background: Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: #303034;
+                        border-color: Palette.border-subtle;
 
                         HorizontalLayout {
                             padding-left: 9px;
@@ -206,7 +208,7 @@ export component DownloadInfoDialog inherits Window {
                                     height: 11px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #0A84FF;
+                                    tint: Palette.accent;
                                 }
                             }
 
@@ -214,7 +216,7 @@ export component DownloadInfoDialog inherits Window {
                                 text: root.file-size-text != "" ? root.file-size-text : "—";
                                 font-size: 11.5px;
                                 font-weight: 600;
-                                color: #E2E2E6;
+                                color: Palette.text-primary;
                                 vertical-alignment: center;
                             }
                         }
@@ -225,9 +227,9 @@ export component DownloadInfoDialog inherits Window {
                         width: 110px;
                         height: 32px;
                         border-radius: 6px;
-                        background: cat-t.has-hover ? #26262A : #202024;
+                        background: cat-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: root.category-dropdown-open ? #0A84FF : #303034;
+                        border-color: root.category-dropdown-open ? Palette.accent : Palette.border-subtle;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -241,7 +243,7 @@ export component DownloadInfoDialog inherits Window {
                                 text: root.category;
                                 font-size: 11.5px;
                                 font-weight: 500;
-                                color: #E2E2E6;
+                                color: Palette.text-primary;
                                 overflow: elide;
                                 vertical-alignment: center;
                             }
@@ -251,7 +253,7 @@ export component DownloadInfoDialog inherits Window {
                                 width: 9px;
                                 height: 9px;
                                 y: (parent.height - self.height) / 2;
-                                tint: #98989D;
+                                tint: Palette.text-secondary;
                                 transform-rotation: root.category-dropdown-open ? 180deg : 0deg;
                                 animate transform-rotation { duration: 150ms; }
                             }
@@ -272,7 +274,7 @@ export component DownloadInfoDialog inherits Window {
                         font-size: 10px;
                         font-weight: 700;
                         letter-spacing: 0.6px;
-                        color: #8E8E93;
+                        color: Palette.text-secondary;
                     }
 
                     Field {
@@ -280,9 +282,9 @@ export component DownloadInfoDialog inherits Window {
                         font-size: 12px;
                         radius: 6px;
                         pad-x: 10px;
-                        placeholder: "https://...";
-                        text <=> root.url;
-                        edited(t) => { root.url-edited(t); }
+                        placeholder: "https:// or magnet:?...";
+                        text: root.url;
+                        edited(t) => { root.url = t; root.url-edited(t); }
                     }
                 }
 
@@ -295,7 +297,7 @@ export component DownloadInfoDialog inherits Window {
                         font-size: 10px;
                         font-weight: 700;
                         letter-spacing: 0.6px;
-                        color: #8E8E93;
+                        color: Palette.text-secondary;
                     }
 
                     HorizontalLayout {
@@ -307,26 +309,26 @@ export component DownloadInfoDialog inherits Window {
                             radius: 6px;
                             pad-x: 10px;
                             placeholder: "Save folder path...";
-                            text <=> root.folder;
+                            text: root.folder;
                             horizontal-stretch: 1;
-                            edited(t) => { root.save-as = t + "\\" + root.filename; }
+                            edited(t) => { root.folder = t; root.save-as = t + "/" + root.filename; }
                         }
 
                         Rectangle {
                             width: 86px;
                             height: 30px;
                             border-radius: 6px;
-                            background: br-touch.pressed ? #323236 :
-                                        br-touch.has-hover ? #2A2A2E : #222225;
+                            background: br-touch.pressed ? Palette.hover-bg :
+                                        br-touch.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: br-touch.has-hover ? #404046 : #303034;
+                            border-color: Palette.border-subtle;
                             animate background { duration: 120ms; }
 
                             br-touch := TouchArea {
                                 clicked => {
                                     root.folder = root.pick-folder();
                                     if (root.folder != "") {
-                                        root.save-as = root.folder + "\\" + root.filename;
+                                        root.save-as = root.folder + "/" + root.filename;
                                     }
                                 }
                             }
@@ -345,7 +347,7 @@ export component DownloadInfoDialog inherits Window {
                                         height: 12px;
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        tint: #D1D1D6;
+                                        tint: Palette.text-secondary;
                                     }
                                 }
 
@@ -353,7 +355,7 @@ export component DownloadInfoDialog inherits Window {
                                     text: "Browse…";
                                     font-size: 11.5px;
                                     font-weight: 500;
-                                    color: #FFFFFF;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }
@@ -371,9 +373,9 @@ export component DownloadInfoDialog inherits Window {
                         height: 15px;
                         y: (parent.height - self.height) / 2;
                         border-radius: 4px;
-                        background: root.remember-path ? #0A84FF : #222225;
+                        background: root.remember-path ? Palette.accent : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: root.remember-path ? #0A84FF : #404046;
+                        border-color: root.remember-path ? Palette.accent : Palette.border-color;
                         animate background { duration: 120ms; }
 
                         TouchArea {
@@ -393,7 +395,7 @@ export component DownloadInfoDialog inherits Window {
                     Text {
                         text: "Remember this folder for \"" + root.category + "\" downloads";
                         font-size: 11.5px;
-                        color: #B0B0B5;
+                        color: Palette.text-secondary;
                         vertical-alignment: center;
 
                         TouchArea {
@@ -424,14 +426,14 @@ export component DownloadInfoDialog inherits Window {
                                 height: 12px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: #64D2FF;
+                                tint: Palette.accent-light;
                             }
                         }
 
                         Text {
                             text: root.is-probing ? "Probing server information…" : "";
                             font-size: 11px;
-                            color: #64D2FF;
+                            color: Palette.accent-light;
                             vertical-alignment: center;
                         }
                     }
@@ -446,10 +448,10 @@ export component DownloadInfoDialog inherits Window {
                             height: 32px;
                             min-width: 72px;
                             border-radius: 7px;
-                            background: cancel-t.pressed ? #323236 :
-                                        cancel-t.has-hover ? #2A2A2E : #222225;
+                            background: cancel-t.pressed ? Palette.hover-bg :
+                                        cancel-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: cancel-t.has-hover ? #404046 : #303034;
+                            border-color: Palette.border-subtle;
                             animate background { duration: 120ms; }
 
                             cancel-t := TouchArea {
@@ -460,7 +462,7 @@ export component DownloadInfoDialog inherits Window {
                                 text: "Cancel";
                                 font-size: 12px;
                                 font-weight: 500;
-                                color: cancel-t.has-hover ? #FFFFFF : #D1D1D6;
+                                color: cancel-t.has-hover ? Palette.text-primary : Palette.text-secondary;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                             }
@@ -471,10 +473,10 @@ export component DownloadInfoDialog inherits Window {
                             height: 32px;
                             min-width: 116px;
                             border-radius: 7px;
-                            background: later-t.pressed ? #323236 :
-                                        later-t.has-hover ? #2C2C30 : #242428;
+                            background: later-t.pressed ? Palette.hover-bg :
+                                        later-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: later-t.has-hover ? #404046 : #303034;
+                            border-color: Palette.border-subtle;
                             animate background { duration: 120ms; }
 
                             later-t := TouchArea {
@@ -499,7 +501,7 @@ export component DownloadInfoDialog inherits Window {
                                         height: 12px;
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        tint: #D1D1D6;
+                                        tint: Palette.text-secondary;
                                     }
                                 }
 
@@ -507,7 +509,7 @@ export component DownloadInfoDialog inherits Window {
                                     text: "Add Paused";
                                     font-size: 12px;
                                     font-weight: 500;
-                                    color: #E2E2E6;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }
@@ -518,10 +520,10 @@ export component DownloadInfoDialog inherits Window {
                             height: 32px;
                             min-width: 128px;
                             border-radius: 7px;
-                            background: start-t.pressed ? #0055B3 :
-                                        start-t.has-hover ? #2394FF : #0A84FF;
+                            background: start-t.pressed ? Palette.accent-pressed :
+                                        start-t.has-hover ? Palette.accent-hover : Palette.accent;
                             drop-shadow-blur: start-t.has-hover ? 12px : 4px;
-                            drop-shadow-color: #0A84FF66;
+                            drop-shadow-color: Palette.accent-tint-bg;
                             animate background { duration: 120ms; }
 
                             start-t := TouchArea {
@@ -565,29 +567,36 @@ export component DownloadInfoDialog inherits Window {
         }
 
         // ══════════════════════════════════════════
-        // CATEGORY DROPDOWN MENU (TOPMOST OVERLAY)
+        // CATEGORY DROPDOWN MENU (TOPMOST OVERLAY WITH FLUID MORPH ANIMATION)
         // ══════════════════════════════════════════
-        if root.category-dropdown-open: Rectangle {
+        Rectangle {
             x: 0;
             y: 0;
             width: 100%;
             height: 100%;
             background: transparent;
+            visible: root.category-dropdown-open || cat-popup.opacity > 0.01;
 
             TouchArea {
+                enabled: root.category-dropdown-open;
                 clicked => { root.category-dropdown-open = false; }
             }
 
-            Rectangle {
+            cat-popup := Rectangle {
                 x: parent.width - 128px;
-                y: 72px;
+                y: root.category-dropdown-open ? 72px : 64px;
                 width: 114px;
                 border-radius: 8px;
-                background: #1C1C20;
+                background: Palette.surface-bg;
                 border-width: 1px;
-                border-color: #38383E;
+                border-color: Palette.border-color;
                 drop-shadow-blur: 24px;
                 drop-shadow-color: #000000ee;
+                opacity: root.category-dropdown-open ? 1.0 : 0.0;
+                clip: true;
+
+                animate opacity { duration: 150ms; easing: ease-out; }
+                animate y { duration: 180ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
 
                 TouchArea {}
 
@@ -598,8 +607,8 @@ export component DownloadInfoDialog inherits Window {
                     for opt in ["General", "Compressed", "Programs", "Video", "Music", "Documents", "Pictures"]: Rectangle {
                         height: 24px;
                         border-radius: 4px;
-                        background: opt == root.category ? #0A84FF :
-                                    c-t.has-hover ? #2A2A2E : transparent;
+                        background: opt == root.category ? Palette.accent :
+                                    c-t.has-hover ? Palette.hover-bg : transparent;
                         animate background { duration: 100ms; }
 
                         HorizontalLayout {
@@ -611,12 +620,13 @@ export component DownloadInfoDialog inherits Window {
                                 text: opt;
                                 font-size: 11.5px;
                                 font-weight: opt == root.category ? 600 : 400;
-                                color: #FFFFFF;
+                                color: opt == root.category ? #FFFFFF : Palette.text-primary;
                                 vertical-alignment: center;
                             }
                         }
 
                         c-t := TouchArea {
+                            enabled: root.category-dropdown-open;
                             clicked => {
                                 root.category = opt;
                                 root.category-changed(opt);

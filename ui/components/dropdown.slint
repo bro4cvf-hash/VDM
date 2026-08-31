@@ -1,6 +1,7 @@
 import { Icon } from "icon.slint";
 import { Field } from "inputs.slint";
 import { PrimaryBtn } from "buttons.slint";
+import { Palette } from "../theme.slint";
 
 // ── Dropdown (opens upward for the status bar) ──
 export component Dropdown inherits Rectangle {
@@ -34,11 +35,11 @@ export component Dropdown inherits Rectangle {
         x: 0;
         y: -self.height - 8px - (root.open ? 0px : 6px);
         border-radius: 10px;
-        background: #28282A;
+        background: Palette.surface-bg;
         border-width: 1px;
-        border-color: #48484a;
+        border-color: Palette.border-color;
         drop-shadow-blur: 24px;
-        drop-shadow-color: #000000aa;
+        drop-shadow-color: #00000044;
         opacity: root.open ? 1 : 0;
         animate opacity { duration: 160ms; easing: ease-out; }
         animate y { duration: 160ms; easing: ease-out; }
@@ -50,8 +51,8 @@ export component Dropdown inherits Rectangle {
             for opt[i] in root.options: Rectangle {
                 height: 26px;
                 border-radius: 6px;
-                background: i == root.selected ? #0A84FF :
-                            opt-t.has-hover ? #3A3A3C : transparent;
+                background: i == root.selected ? Palette.accent :
+                            opt-t.has-hover ? Palette.hover-bg : transparent;
                 animate background { duration: 120ms; }
 
                 Text {
@@ -59,7 +60,7 @@ export component Dropdown inherits Rectangle {
                     text: opt;
                     font-size: 12px;
                     font-weight: i == root.selected ? 600 : 400;
-                    color: i == root.selected ? #ffffff : #d1d1d6;
+                    color: i == root.selected ? #ffffff : (opt-t.has-hover ? Palette.text-primary : Palette.text-secondary);
                     vertical-alignment: center;
                 }
 
@@ -111,9 +112,9 @@ export component Dropdown inherits Rectangle {
         width: Math.max(100px, label-t.preferred-width + value-t.preferred-width + 40px);
         height: 24px;
         border-radius: 12px;
-        background: root.open ? #3A3A3C : touch.has-hover ? #2C2C2E : #2C2C2E;
+        background: root.open ? Palette.hover-bg : (touch.has-hover ? Palette.hover-bg : Palette.input-bg);
         border-width: 1px;
-        border-color: root.open ? #0A84FF : touch.has-hover ? #48484a : #3A3A3C;
+        border-color: root.open ? Palette.accent : (touch.has-hover ? Palette.border-color : Palette.border-subtle);
         animate border-color { duration: 150ms; }
         animate background { duration: 150ms; }
 
@@ -126,7 +127,7 @@ export component Dropdown inherits Rectangle {
             label-t := Text {
                 text: root.label;
                 font-size: 11px;
-                color: #98989D;
+                color: Palette.text-secondary;
                 vertical-alignment: center;
             }
 
@@ -134,7 +135,7 @@ export component Dropdown inherits Rectangle {
                 text: root.value;
                 font-size: 11px;
                 font-weight: 600;
-                color: root.open ? #64D2FF : #d1d1d6;
+                color: root.open ? Palette.accent-light : Palette.text-primary;
                 animate color { duration: 150ms; }
                 vertical-alignment: center;
             }
@@ -148,7 +149,7 @@ export component Dropdown inherits Rectangle {
                     height: 10px;
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    tint: #98989D;
+                    tint: Palette.text-secondary;
                     transform-rotation: root.open ? 180deg : 0deg;
                     transform-origin: { x: self.width / 2, y: self.height / 2 };
                     animate transform-rotation { duration: 180ms; easing: ease-out; }

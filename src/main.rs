@@ -1,7 +1,7 @@
 use anyhow::Context;
 use i_slint_backend_winit::WinitWindowAccessor;
 use rfd::FileDialog;
-use slint::{Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -168,6 +168,86 @@ fn open_renew_dialog(
         win.focus_window();
         win.request_user_attention(Some(i_slint_backend_winit::winit::window::UserAttentionType::Critical));
     });
+}
+
+fn start_shutdown_countdown(
+    shutdown_dialog: &ShutdownDialog,
+    main_window_opt: Option<&slint::Window>,
+    countdown_active: &Arc<AtomicBool>,
+    countdown_seconds: &Arc<AtomicI32>,
+    weak_dialog: slint::Weak<ShutdownDialog>,
+) {
+    if countdown_active.swap(true, Ordering::SeqCst) {
+        return; // already counting down
+    }
+    countdown_seconds.store(30, Ordering::Relaxed);
+    shutdown_dialog.set_seconds_remaining(30);
+    shutdown_dialog.set_progress(1.0);
+    shutdown_dialog.set_message("All downloads have finished successfully.".into());
+    let _ = shutdown_dialog.show();
+    center_dialog(main_window_opt, shutdown_dialog.window(), 480.0, 235.0);
+    shutdown_dialog.window().with_winit_window(|win| {
+        win.set_window_level(i_slint_backend_winit::winit::window::WindowLevel::AlwaysOnTop);
+        win.set_visible(true);
+        win.focus_window();
+        win.request_user_attention(Some(i_slint_backend_winit::winit::window::UserAttentionType::Critical));
+    });
+
+    // 35s OS grace window so Windows knows shutdown is scheduled but our in-app dialog can abort it
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("shutdown").args(["/s", "/t", "35"]).spawn();
+    }
+
+    let active_timer = countdown_active.clone();
+    let sec_timer = countdown_seconds.clone();
+    let weak_d = weak_dialog;
+
+    std::thread::spawn(move || {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_secs(1));
+            if !active_timer.load(Ordering::Relaxed) {
+                return;
+            }
+            let remaining = sec_timer.fetch_sub(1, Ordering::Relaxed) - 1;
+            let wd = weak_d.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(d) = wd.upgrade() {
+                    d.set_seconds_remaining(remaining.max(0));
+                    d.set_progress((remaining.max(0) as f32 / 30.0).clamp(0.0, 1.0));
+                }
+            });
+            if remaining <= 0 {
+                break;
+            }
+        }
+
+        if active_timer.swap(false, Ordering::SeqCst) {
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("shutdown")
+                    .args(["/s", "/t", "0"])
+                    .spawn();
+            }
+        }
+    });
+}
+
+fn abort_shutdown_countdown(
+    shutdown_dialog_weak: &slint::Weak<ShutdownDialog>,
+    countdown_active: &Arc<AtomicBool>,
+) {
+    countdown_active.store(false, Ordering::SeqCst);
+    SHUTDOWN_ARMED.store(false, Ordering::Relaxed);
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("shutdown")
+            .args(["/a"])
+            .spawn();
+    }
+    if let Some(d) = shutdown_dialog_weak.upgrade() {
+        let _ = d.hide();
+    }
 }
 
 fn get_category_folder(cat: &str) -> String {
@@ -484,6 +564,7 @@ impl ProgressRegistry {
 
     fn open_dialog(&self, snap: &TaskSnapshot) {
         let mut map = self.dialogs.lock().unwrap();
+        map.retain(|_, weak| weak.upgrade().is_some());
         if let Some(existing_weak) = map.get(&snap.id) {
             if let Some(existing) = existing_weak.upgrade() {
                 let _ = existing.show();
@@ -503,6 +584,9 @@ impl ProgressRegistry {
                 return;
             }
         };
+        let theme_idx: i32 = self.manager.db.get_kv("theme").and_then(|s| s.parse().ok()).unwrap_or(0);
+        p.global::<Palette>().set_active_theme(theme_idx);
+
         let task_id = snap.id.clone();
         p.set_task_id(task_id.clone().into());
         p.set_filename(snap.filename.clone().into());
@@ -517,6 +601,7 @@ impl ProgressRegistry {
         p.set_progress(pct);
         p.set_percent_text(format!("{:.1}%", pct * 100.0).into());
         p.set_is_paused(snap.status == "paused");
+        p.set_is_torrent(snap.url.starts_with("magnet:?"));
         p.set_status_text(if snap.status == "downloading" { "Receiving data...".into() } else { snap.status.clone().into() });
 
         let p_weak = p.as_weak();
@@ -543,7 +628,14 @@ impl ProgressRegistry {
             if let Some(d) = p_weak_close.upgrade() {
                 let _ = d.hide();
             }
-            map_close.lock().unwrap().remove(&tid_close);
+            let mut map = map_close.lock().unwrap();
+            map.remove(&tid_close);
+            let any_armed = map.values().any(|w| {
+                w.upgrade().map(|d| d.get_shutdown_when_done()).unwrap_or(false)
+            });
+            if !any_armed {
+                SHUTDOWN_ARMED.store(false, Ordering::Relaxed);
+            }
         });
 
         let m_pause = self.manager.clone();
@@ -576,7 +668,14 @@ impl ProgressRegistry {
             if let Some(d) = p_weak_canc.upgrade() {
                 let _ = d.hide();
             }
-            map_canc.lock().unwrap().remove(&tid_canc);
+            let mut map = map_canc.lock().unwrap();
+            map.remove(&tid_canc);
+            let any_armed = map.values().any(|w| {
+                w.upgrade().map(|d| d.get_shutdown_when_done()).unwrap_or(false)
+            });
+            if !any_armed {
+                SHUTDOWN_ARMED.store(false, Ordering::Relaxed);
+            }
         });
 
         let m_lim = self.manager.clone();
@@ -687,10 +786,15 @@ fn main() -> anyhow::Result<()> {
     let app = AppWindow::new().context("create window")?;
     let menu = TrayMenu::new().context("tray menu")?;
     let info = DownloadInfoDialog::new().context("info dialog")?;
+    let torrent_dialog = TorrentFileSelectDialog::new().context("torrent select dialog")?;
     let renew_dialog = RenewLinkDialog::new().context("renew dialog")?;
     let duplicate_dialog = DuplicateDownloadDialog::new().context("duplicate dialog")?;
     let mini_pill = DownloadMiniPill::new().context("mini pill")?;
     let done = CompleteDialog::new().context("complete dialog")?;
+    let shutdown_dialog = ShutdownDialog::new().context("shutdown dialog")?;
+    let countdown_active = Arc::new(AtomicBool::new(false));
+    let countdown_seconds = Arc::new(AtomicI32::new(30));
+    let had_active_downloads_in_session = Arc::new(AtomicBool::new(false));
     let active_renewing_task: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let progress_registry = Arc::new(ProgressRegistry::new(
         manager.clone(),
@@ -698,6 +802,17 @@ fn main() -> anyhow::Result<()> {
         renew_dialog.as_weak(),
         active_renewing_task.clone(),
     ));
+
+    // Load and apply initial active theme across all windows
+    let theme_idx: i32 = manager.db.get_kv("theme").and_then(|s| s.parse().ok()).unwrap_or(0);
+    app.global::<Palette>().set_active_theme(theme_idx);
+    info.global::<Palette>().set_active_theme(theme_idx);
+    torrent_dialog.global::<Palette>().set_active_theme(theme_idx);
+    renew_dialog.global::<Palette>().set_active_theme(theme_idx);
+    duplicate_dialog.global::<Palette>().set_active_theme(theme_idx);
+    mini_pill.global::<Palette>().set_active_theme(theme_idx);
+    done.global::<Palette>().set_active_theme(theme_idx);
+    shutdown_dialog.global::<Palette>().set_active_theme(theme_idx);
 
     // window / taskbar icon from the brand SVG
     if let Some(rgba) = logo_rgba(64) {
@@ -724,7 +839,7 @@ fn main() -> anyhow::Result<()> {
     let search = Arc::new(Mutex::new(String::new()));
     let sort_col = Arc::new(Mutex::new(String::from("date")));
     let sort_asc = Arc::new(Mutex::new(false));
-    let last_sig = Arc::new(Mutex::new(String::new()));
+    let last_sig = Arc::new(Mutex::new(0u64));
     let filter_for_poll = filter.clone();
     let search_for_poll = search.clone();
     let sort_col_for_poll = sort_col.clone();
@@ -822,10 +937,21 @@ fn main() -> anyhow::Result<()> {
 
     let m = manager.clone();
     let selected_ids_single_rem = selected_ids.clone();
+    let weak_app_single_rem = app.as_weak();
     app.on_remove_download(move |id, delete_file| {
         let s_id = String::from(id);
         let _ = m.remove(&s_id, delete_file);
-        selected_ids_single_rem.lock().unwrap().remove(&s_id);
+        let mut sel = selected_ids_single_rem.lock().unwrap();
+        sel.remove(&s_id);
+        let count = sel.len() as i32;
+        if let Some(a) = weak_app_single_rem.upgrade() {
+            a.set_selected_count(count);
+            if count == 0 {
+                a.set_first_selected_id("".into());
+                a.set_first_selected_filename("".into());
+                a.set_selected_index(-1);
+            }
+        }
     });
 
     let selected_ids_click = selected_ids.clone();
@@ -901,23 +1027,49 @@ fn main() -> anyhow::Result<()> {
         let mut first_id = String::new();
         let mut first_name = String::new();
         if let Some(vm) = model.as_any().downcast_ref::<VecModel<DownloadItem>>() {
-        for i in 0..count {
-            if let Some(mut it) = vm.row_data(i) {
-                sel.insert(it.id.to_string());
-                if first_id.is_empty() {
-                    first_id = it.id.to_string();
-                    first_name = it.filename.to_string();
-                }
-                if !it.selected {
-                    it.selected = true;
-                    vm.set_row_data(i, it);
+            for i in 0..count {
+                if let Some(mut it) = vm.row_data(i) {
+                    sel.insert(it.id.to_string());
+                    if first_id.is_empty() {
+                        first_id = it.id.to_string();
+                        first_name = it.filename.to_string();
+                    }
+                    if !it.selected {
+                        it.selected = true;
+                        vm.set_row_data(i, it);
+                    }
                 }
             }
         }
+        if count > 0 && a.get_selected_index() < 0 {
+            a.set_selected_index(0);
         }
         a.set_selected_count(sel.len() as i32);
         a.set_first_selected_id(first_id.into());
         a.set_first_selected_filename(first_name.into());
+    });
+
+    let selected_ids_desel = selected_ids.clone();
+    let weak_app_desel = app.as_weak();
+    app.on_deselect_all_items(move || {
+        let Some(a) = weak_app_desel.upgrade() else { return };
+        let model = a.get_downloads();
+        let count = model.row_count();
+        selected_ids_desel.lock().unwrap().clear();
+        if let Some(vm) = model.as_any().downcast_ref::<VecModel<DownloadItem>>() {
+            for i in 0..count {
+                if let Some(mut it) = vm.row_data(i) {
+                    if it.selected {
+                        it.selected = false;
+                        vm.set_row_data(i, it);
+                    }
+                }
+            }
+        }
+        a.set_selected_index(-1);
+        a.set_selected_count(0);
+        a.set_first_selected_id("".into());
+        a.set_first_selected_filename("".into());
     });
 
     let m_res_sel = manager.clone();
@@ -984,17 +1136,70 @@ fn main() -> anyhow::Result<()> {
 
     // Folder picker + clipboard now live on the DownloadInfoDialog
 
-    app.on_copy_url(move |url| {
-        if let Ok(mut cb) = arboard::Clipboard::new() {
-            let _ = cb.set_text(String::from(url));
+    let selected_ids_copy = selected_ids.clone();
+    let m_copy = manager.clone();
+    app.on_copy_url(move |single_url| {
+        let url_str = String::from(single_url);
+        let sel = selected_ids_copy.lock().unwrap().clone();
+        if sel.len() > 1 {
+            let snaps = m_copy.list_downloads().unwrap_or_default();
+            let urls: Vec<String> = snaps
+                .into_iter()
+                .filter(|s| sel.contains(&s.id))
+                .map(|s| s.url)
+                .collect();
+            if !urls.is_empty() {
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    let _ = cb.set_text(urls.join("\r\n"));
+                }
+                return;
+            }
+        }
+        if !url_str.is_empty() {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_text(url_str);
+            }
         }
     });
 
     let settings = SettingsDialog::new().context("settings dialog")?;
+    settings.global::<Palette>().set_active_theme(theme_idx);
     settings.set_speed_limit_mbps(init_speed_mbps);
     settings.set_max_connections(init_max_conns);
     settings.set_max_active(init_max_active);
     settings.set_start_at_startup(engine::startup::is_startup_enabled());
+
+    let torrent_down_mbps = manager.db
+        .get_kv("torrent_down_limit")
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(0.0);
+    let torrent_up_mbps = manager.db
+        .get_kv("torrent_up_limit")
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(0.0);
+    let torrent_max_peers = manager.db
+        .get_kv("torrent_max_peers")
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(100);
+    let torrent_dht = manager.db
+        .get_kv("torrent_dht")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    let torrent_pex = manager.db
+        .get_kv("torrent_pex")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    let torrent_auto_trackers = manager.db
+        .get_kv("torrent_auto_trackers")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+
+    settings.set_torrent_down_mbps(torrent_down_mbps);
+    settings.set_torrent_up_mbps(torrent_up_mbps);
+    settings.set_torrent_max_peers(torrent_max_peers);
+    settings.set_torrent_dht_enabled(torrent_dht);
+    settings.set_torrent_pex_enabled(torrent_pex);
+    settings.set_torrent_auto_trackers(torrent_auto_trackers);
 
     // Settings
     let m = manager.clone();
@@ -1029,14 +1234,14 @@ fn main() -> anyhow::Result<()> {
     let l_f = last_sig.clone();
     app.on_filter_changed(move |v| {
         *f.lock().unwrap() = String::from(v);
-        *l_f.lock().unwrap() = String::new();
+        *l_f.lock().unwrap() = 0;
     });
 
     let s = search.clone();
     let l_s = last_sig.clone();
     app.on_search_changed(move |v| {
         *s.lock().unwrap() = String::from(v);
-        *l_s.lock().unwrap() = String::new();
+        *l_s.lock().unwrap() = 0;
     });
 
     let sc = sort_col.clone();
@@ -1045,7 +1250,7 @@ fn main() -> anyhow::Result<()> {
     app.on_sort_changed(move |col, asc| {
         *sc.lock().unwrap() = String::from(col);
         *sa.lock().unwrap() = asc;
-        *l_sc.lock().unwrap() = String::new();
+        *l_sc.lock().unwrap() = 0;
     });
 
     let m_up = manager.clone();
@@ -1404,6 +1609,44 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // ── Shutdown Countdown Dialog Callbacks ──
+    let weak_sd_drag = shutdown_dialog.as_weak();
+    shutdown_dialog.on_drag_window(move || {
+        if let Some(d) = weak_sd_drag.upgrade() {
+            d.window().with_winit_window(|win| {
+                let _ = win.drag_window();
+            });
+        }
+    });
+
+    let weak_sd_cancel = shutdown_dialog.as_weak();
+    let act_sd_cancel = countdown_active.clone();
+    shutdown_dialog.on_cancel_shutdown(move || {
+        abort_shutdown_countdown(&weak_sd_cancel, &act_sd_cancel);
+    });
+
+    let weak_sd_close = shutdown_dialog.as_weak();
+    let act_sd_close = countdown_active.clone();
+    shutdown_dialog.on_closed(move || {
+        abort_shutdown_countdown(&weak_sd_close, &act_sd_close);
+    });
+
+    let weak_sd_now = shutdown_dialog.as_weak();
+    let act_sd_now = countdown_active.clone();
+    shutdown_dialog.on_shutdown_now(move || {
+        act_sd_now.store(false, Ordering::SeqCst);
+        SHUTDOWN_ARMED.store(false, Ordering::Relaxed);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("shutdown")
+                .args(["/s", "/t", "0"])
+                .spawn();
+        }
+        if let Some(d) = weak_sd_now.upgrade() {
+            let _ = d.hide();
+        }
+    });
+
     // ── Browser Integration & Settings Dialog ──
     fn refresh_browser_list(settings: &SettingsDialog) {
         let browsers = engine::browser::BrowserDetector::get_browsers();
@@ -1512,6 +1755,86 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    let m_t_down = manager.clone();
+    settings.on_set_torrent_down_limit(move |mbps| {
+        let mut cur = m_t_down.torrent.get_settings();
+        cur.max_download_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
+        m_t_down.torrent.update_settings(cur);
+        let _ = m_t_down.db.set_kv("torrent_down_limit", &mbps.to_string());
+    });
+
+    let m_t_up = manager.clone();
+    settings.on_set_torrent_up_limit(move |mbps| {
+        let mut cur = m_t_up.torrent.get_settings();
+        cur.max_upload_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
+        m_t_up.torrent.update_settings(cur);
+        let _ = m_t_up.db.set_kv("torrent_up_limit", &mbps.to_string());
+    });
+
+    let m_t_peers = manager.clone();
+    settings.on_set_torrent_max_peers(move |n| {
+        let mut cur = m_t_peers.torrent.get_settings();
+        cur.max_peers = (n as usize).clamp(10, 500);
+        m_t_peers.torrent.update_settings(cur);
+        let _ = m_t_peers.db.set_kv("torrent_max_peers", &n.to_string());
+    });
+
+    let m_t_dht = manager.clone();
+    settings.on_set_torrent_dht_enabled(move |val| {
+        let mut cur = m_t_dht.torrent.get_settings();
+        cur.enable_dht = val;
+        m_t_dht.torrent.update_settings(cur);
+        let _ = m_t_dht.db.set_kv("torrent_dht", if val { "1" } else { "0" });
+    });
+
+    let m_t_pex = manager.clone();
+    settings.on_set_torrent_pex_enabled(move |val| {
+        let mut cur = m_t_pex.torrent.get_settings();
+        cur.enable_pex = val;
+        m_t_pex.torrent.update_settings(cur);
+        let _ = m_t_pex.db.set_kv("torrent_pex", if val { "1" } else { "0" });
+    });
+
+    let m_t_trackers = manager.clone();
+    settings.on_set_torrent_auto_trackers(move |val| {
+        let mut cur = m_t_trackers.torrent.get_settings();
+        cur.enable_auto_trackers = val;
+        m_t_trackers.torrent.update_settings(cur);
+        let _ = m_t_trackers.db.set_kv("torrent_auto_trackers", if val { "1" } else { "0" });
+    });
+
+    let weak_app_th = app.as_weak();
+    let weak_settings_th = settings.as_weak();
+    let weak_info_th = info.as_weak();
+    let weak_torrent_th = torrent_dialog.as_weak();
+    let weak_renew_th = renew_dialog.as_weak();
+    let weak_dup_th = duplicate_dialog.as_weak();
+    let weak_pill_th = mini_pill.as_weak();
+    let weak_done_th = done.as_weak();
+    let weak_shutdown_th = shutdown_dialog.as_weak();
+    let m_th = manager.clone();
+    let prog_reg_th = progress_registry.clone();
+
+    settings.on_set_theme(move |idx| {
+        let _ = m_th.db.set_kv("theme", &idx.to_string());
+        if let Some(w) = weak_app_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_settings_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_info_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_torrent_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_renew_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_dup_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_pill_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_done_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+        if let Some(w) = weak_shutdown_th.upgrade() { w.global::<Palette>().set_active_theme(idx); }
+
+        let active_dialogs = prog_reg_th.dialogs.lock().unwrap();
+        for (_, weak_p) in active_dialogs.iter() {
+            if let Some(p) = weak_p.upgrade() {
+                p.global::<Palette>().set_active_theme(idx);
+            }
+        }
+    });
+
     // ── Local Loopback Server (:9191) for Browser Extension ──
     let (download_tx, mut download_rx) = tokio::sync::mpsc::unbounded_channel::<engine::server::ServerEvent>();
     let loopback_server = Arc::new(engine::server::LoopbackServer::new(
@@ -1523,6 +1846,7 @@ fn main() -> anyhow::Result<()> {
     });
 
     let weak_info_server = info.as_weak();
+    let weak_torrent_server = torrent_dialog.as_weak();
     let weak_app_server = app.as_weak();
     let weak_ren_server = renew_dialog.as_weak();
     let weak_dup_server = duplicate_dialog.as_weak();
@@ -1534,6 +1858,7 @@ fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         while let Some(event) = download_rx.recv().await {
             let wi = weak_info_server.clone();
+            let wt = weak_torrent_server.clone();
             let wa = weak_app_server.clone();
             let wren = weak_ren_server.clone();
             let wdup = weak_dup_server.clone();
@@ -1557,6 +1882,19 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                     engine::server::ServerEvent::AddDownload(payload) => {
+                        if payload.url.starts_with("magnet:?") {
+                            if let Some(td) = wt.upgrade() {
+                                open_torrent_select_dialog(
+                                    &td,
+                                    wa.upgrade().as_ref().map(|a| a.window()),
+                                    m.clone(),
+                                    payload.url,
+                                    None,
+                                );
+                            }
+                            return;
+                        }
+
                         let show_modal = ws.upgrade().map(|s| s.get_show_info_modal()).unwrap_or(true);
 
                         let inferred = engine::probe::url_basename(&payload.url);
@@ -1853,13 +2191,23 @@ fn main() -> anyhow::Result<()> {
 
     let weak_menu = menu.as_weak();
     let weak_app = app.as_weak();
+    let weak_info_quit = info.as_weak();
+    let weak_torrent_quit = torrent_dialog.as_weak();
+    let weak_renew_quit = renew_dialog.as_weak();
+    let weak_dup_quit = duplicate_dialog.as_weak();
+    let weak_pill_quit = mini_pill.as_weak();
+    let weak_done_quit = done.as_weak();
+    let weak_settings_quit = settings.as_weak();
+    let weak_shutdown_quit = shutdown_dialog.as_weak();
+    let act_shutdown_quit = countdown_active.clone();
+    let progress_reg_menu = progress_registry.clone();
     let m = manager.clone();
     let menu_gen_item = menu_gen.clone();
     menu.on_item(move |what| {
         let what: String = what.into();
-        close_menu_later(weak_menu.clone(), &menu_gen_item);
         match what.as_str() {
             "open" => {
+                close_menu_later(weak_menu.clone(), &menu_gen_item);
                 if let Some(a) = weak_app.upgrade() {
                     a.window().with_winit_window(|win| {
                         win.set_visible(true);
@@ -1870,12 +2218,62 @@ fn main() -> anyhow::Result<()> {
                     a.window().set_minimized(false);
                 }
             }
-            "pause-all" => m.pause_all(),
-            "resume-all" => m.resume_all(),
-            "quit" => {
-                let _ = slint::quit_event_loop();
+            "pause-all" => {
+                close_menu_later(weak_menu.clone(), &menu_gen_item);
+                m.pause_all();
             }
-            _ => {}
+            "resume-all" => {
+                close_menu_later(weak_menu.clone(), &menu_gen_item);
+                m.resume_all();
+            }
+            "quit" => {
+                // 1. Hide all open windows immediately so no ghost/unpumped HWNDs remain
+                if let Some(mm) = weak_menu.upgrade() {
+                    let _ = mm.hide();
+                }
+                if let Some(a) = weak_app.upgrade() {
+                    let _ = a.hide();
+                }
+                if let Some(inf) = weak_info_quit.upgrade() {
+                    let _ = inf.hide();
+                }
+                if let Some(td) = weak_torrent_quit.upgrade() {
+                    let _ = td.hide();
+                }
+                if let Some(rd) = weak_renew_quit.upgrade() {
+                    let _ = rd.hide();
+                }
+                if let Some(dd) = weak_dup_quit.upgrade() {
+                    let _ = dd.hide();
+                }
+                if let Some(pill) = weak_pill_quit.upgrade() {
+                    let _ = pill.hide();
+                }
+                if let Some(dn) = weak_done_quit.upgrade() {
+                    let _ = dn.hide();
+                }
+                if let Some(st) = weak_settings_quit.upgrade() {
+                    let _ = st.hide();
+                }
+                if let Some(sd) = weak_shutdown_quit.upgrade() {
+                    let _ = sd.hide();
+                }
+                abort_shutdown_countdown(&weak_shutdown_quit, &act_shutdown_quit);
+                for (_, weak_p) in progress_reg_menu.dialogs.lock().unwrap().drain() {
+                    if let Some(p) = weak_p.upgrade() {
+                        let _ = p.hide();
+                    }
+                }
+
+                // 2. Pause and persist all tasks cleanly
+                m.pause_all();
+
+                // 3. Clean and immediate process exit (terminates all background threads without hanging)
+                std::process::exit(0);
+            }
+            _ => {
+                close_menu_later(weak_menu.clone(), &menu_gen_item);
+            }
         }
     });
 
@@ -1958,11 +2356,249 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
+    fn open_torrent_select_dialog(
+        torrent_dialog: &TorrentFileSelectDialog,
+        main_window: Option<&slint::Window>,
+        manager: Arc<Manager>,
+        magnet_url: String,
+        initial_folder: Option<String>,
+    ) {
+        let folder = initial_folder.unwrap_or_else(|| {
+            dirs::download_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("Torrents")
+                .to_string_lossy()
+                .to_string()
+        });
+
+        let magnet_info = engine::probe::parse_magnet(&magnet_url);
+        let torrent_name = magnet_info
+            .as_ref()
+            .and_then(|m| m.display_name.clone())
+            .unwrap_or_else(|| "Torrent Package".to_string());
+        let total_size_str = magnet_info
+            .as_ref()
+            .and_then(|m| m.total_size)
+            .map(fmt_size)
+            .unwrap_or_else(|| "—".to_string());
+
+        torrent_dialog.set_url(magnet_url.clone().into());
+        torrent_dialog.set_torrent_name(torrent_name.into());
+        torrent_dialog.set_folder(folder.into());
+        torrent_dialog.set_total_size_text(total_size_str.clone().into());
+        torrent_dialog.set_selected_size_text(total_size_str.into());
+        torrent_dialog.set_selected_count(0);
+        torrent_dialog.set_total_files_count(0);
+        torrent_dialog.set_is_fetching_meta(true);
+        torrent_dialog.set_meta_status_text("Connecting to DHT swarm & reading torrent files...".into());
+        torrent_dialog.set_files(ModelRc::new(VecModel::default()));
+
+        let _ = torrent_dialog.show();
+        center_dialog(main_window, torrent_dialog.window(), 620.0, 480.0);
+        torrent_dialog.window().with_winit_window(|win| {
+            win.set_window_level(i_slint_backend_winit::winit::window::WindowLevel::AlwaysOnTop);
+            win.set_visible(true);
+            win.focus_window();
+            win.request_user_attention(Some(i_slint_backend_winit::winit::window::UserAttentionType::Critical));
+        });
+
+        let weak_dialog = torrent_dialog.as_weak();
+        let t_engine = manager.torrent();
+        tokio::spawn(async move {
+            let res = t_engine.fetch_torrent_files(&magnet_url).await;
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(d) = weak_dialog.upgrade() {
+                    match res {
+                        Ok((name, total_bytes, files)) => {
+                            d.set_torrent_name(name.into());
+                            let size_str = if total_bytes > 0 { fmt_size(total_bytes) } else { "—".to_string() };
+                            d.set_total_size_text(size_str.clone().into());
+                            d.set_selected_size_text(size_str.into());
+                            d.set_total_files_count(files.len() as i32);
+                            d.set_selected_count(files.len() as i32);
+                            d.set_is_fetching_meta(false);
+
+                            let items: Vec<TorrentFileItem> = files
+                                .into_iter()
+                                .map(|f| TorrentFileItem {
+                                    id: f.id as i32,
+                                    name: f.name.into(),
+                                    size_text: if f.size_bytes > 0 { fmt_size(f.size_bytes).into() } else { "—".into() },
+                                    size_bytes: f.size_bytes as f32,
+                                    selected: true,
+                                    file_type: f.file_type.into(),
+                                })
+                                .collect();
+                            d.set_files(ModelRc::new(VecModel::from(items)));
+                        }
+                        Err(e) => {
+                            d.set_is_fetching_meta(false);
+                            d.set_meta_status_text(format!("Could not fetch file list: {}", e).into());
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    // ── Torrent File Select Dialog Callbacks ──
+    let weak_t_dialog = torrent_dialog.as_weak();
+    torrent_dialog.on_toggle_file(move |file_id| {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            let model = d.get_files();
+            let count = model.row_count();
+            let mut total_selected_bytes = 0.0f64;
+            let mut selected_count = 0i32;
+
+            if let Some(vm) = model.as_any().downcast_ref::<VecModel<TorrentFileItem>>() {
+                for i in 0..count {
+                    if let Some(mut item) = vm.row_data(i) {
+                        if item.id == file_id {
+                            item.selected = !item.selected;
+                            vm.set_row_data(i, item.clone());
+                        }
+                        if item.selected {
+                            selected_count += 1;
+                            total_selected_bytes += item.size_bytes as f64;
+                        }
+                    }
+                }
+            }
+            d.set_selected_count(selected_count);
+            d.set_selected_size_text(fmt_size(total_selected_bytes as u64).into());
+        }
+    });
+
+    let weak_t_dialog = torrent_dialog.as_weak();
+    torrent_dialog.on_select_all(move |val| {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            let model = d.get_files();
+            let count = model.row_count();
+            let mut total_selected_bytes = 0.0f64;
+            let mut selected_count = 0i32;
+
+            if let Some(vm) = model.as_any().downcast_ref::<VecModel<TorrentFileItem>>() {
+                for i in 0..count {
+                    if let Some(mut item) = vm.row_data(i) {
+                        item.selected = val;
+                        vm.set_row_data(i, item.clone());
+                        if val {
+                            selected_count += 1;
+                            total_selected_bytes += item.size_bytes as f64;
+                        }
+                    }
+                }
+            }
+            d.set_selected_count(selected_count);
+            d.set_selected_size_text(fmt_size(total_selected_bytes as u64).into());
+        }
+    });
+
+    let weak_t_dialog = torrent_dialog.as_weak();
+    let m_t_confirm = manager.clone();
+    let p_reg_t_confirm = progress_registry.clone();
+    torrent_dialog.on_confirm(move |folder, _extra| {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            let url: String = d.get_url().into();
+            let folder_str: String = folder.into();
+            let name_str: String = d.get_torrent_name().into();
+
+            let model = d.get_files();
+            let count = model.row_count();
+            let mut selected_indices = Vec::new();
+            let mut total_bytes = 0u64;
+
+            if let Some(vm) = model.as_any().downcast_ref::<VecModel<TorrentFileItem>>() {
+                for i in 0..count {
+                    if let Some(item) = vm.row_data(i) {
+                        if item.selected {
+                            selected_indices.push(item.id as usize);
+                            total_bytes += item.size_bytes as u64;
+                        }
+                    }
+                }
+            }
+
+            let mut headers = HashMap::new();
+            headers.insert(
+                "selected_files".to_string(),
+                serde_json::to_string(&selected_indices).unwrap_or_default(),
+            );
+
+            let folder_opt = if folder_str.trim().is_empty() {
+                None
+            } else {
+                Some(folder_str)
+            };
+
+            match m_t_confirm.add_download_with_total(
+                url,
+                folder_opt,
+                Some(name_str),
+                headers,
+                Some(total_bytes),
+            ) {
+                Ok(snap) => {
+                    p_reg_t_confirm.open_dialog(&snap);
+                }
+                Err(e) => eprintln!("[VDM] Failed to add torrent download: {e}"),
+            }
+
+            let _ = d.hide();
+        }
+    });
+
+    let weak_t_dialog = torrent_dialog.as_weak();
+    torrent_dialog.on_drag_window(move || {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            d.window().with_winit_window(|win| {
+                let _ = win.drag_window();
+            });
+        }
+    });
+
+    let weak_t_dialog = torrent_dialog.as_weak();
+    torrent_dialog.on_minimize_window(move || {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            d.window().set_minimized(true);
+        }
+    });
+
+    let weak_t_dialog = torrent_dialog.as_weak();
+    torrent_dialog.on_closed(move || {
+        if let Some(d) = weak_t_dialog.upgrade() {
+            let _ = d.hide();
+        }
+    });
+
+    torrent_dialog.on_pick_folder(move || {
+        FileDialog::new()
+            .pick_folder()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
+            .into()
+    });
+
     let weak_info = info.as_weak();
+    let weak_t_add = torrent_dialog.as_weak();
     let weak_add_parent = app.as_weak();
+    let m_add = manager.clone();
     app.on_open_add(move || {
+        let url = extract_url_from_clipboard().unwrap_or_default();
+        if url.starts_with("magnet:?") {
+            if let Some(td) = weak_t_add.upgrade() {
+                open_torrent_select_dialog(
+                    &td,
+                    weak_add_parent.upgrade().as_ref().map(|a| a.window()),
+                    m_add.clone(),
+                    url,
+                    None,
+                );
+            }
+            return;
+        }
+
         if let Some(d) = weak_info.upgrade() {
-            let url = extract_url_from_clipboard().unwrap_or_default();
             let filename = if !url.is_empty() {
                 engine::probe::url_basename(&url).unwrap_or_default()
             } else {
@@ -2044,9 +2680,28 @@ fn main() -> anyhow::Result<()> {
     });
 
     let weak_info_url = info.as_weak();
+    let weak_t_url = torrent_dialog.as_weak();
+    let weak_app_url = app.as_weak();
+    let m_url = manager.clone();
     info.on_url_edited(move |url| {
+        let u: String = url.into();
+        if u.starts_with("magnet:?") {
+            if let Some(d) = weak_info_url.upgrade() {
+                let _ = d.hide();
+            }
+            if let Some(td) = weak_t_url.upgrade() {
+                open_torrent_select_dialog(
+                    &td,
+                    weak_app_url.upgrade().as_ref().map(|a| a.window()),
+                    m_url.clone(),
+                    u,
+                    None,
+                );
+            }
+            return;
+        }
+
         if let Some(d) = weak_info_url.upgrade() {
-            let u: String = url.into();
             let base = engine::probe::url_basename(&u).unwrap_or_default();
             if !base.is_empty() {
                 update_dialog_for_file(&d, &base);
@@ -2233,19 +2888,40 @@ fn main() -> anyhow::Result<()> {
     let completed_queue_for_poll = completed_queue.clone();
     let is_complete_dialog_showing_poll = is_complete_dialog_showing.clone();
     let weak_done_poll = done.as_weak();
+    let weak_shutdown_poll = shutdown_dialog.as_weak();
+    let countdown_active_poll = countdown_active.clone();
+    let countdown_seconds_poll = countdown_seconds.clone();
+    let had_active_downloads_in_session_poll = had_active_downloads_in_session.clone();
 
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(250));
         let snaps = manager_cloned_for_poll.list_downloads().unwrap_or_default();
 
-        // armed from the complete dialog: shut down the PC once the queue drains
-        // (checked before the fingerprint gate so a static state still triggers)
-        if SHUTDOWN_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
-            let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued" | "processing"));
-            let any_done = snaps.iter().any(|s| s.status == "completed");
-            if !busy && any_done && SHUTDOWN_ARMED.swap(false, std::sync::atomic::Ordering::Relaxed) {
-                // 30s grace window; `shutdown /a` aborts
-                let _ = std::process::Command::new("shutdown").args(["/s", "/t", "30"]).spawn();
+        let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued" | "processing"));
+        if busy {
+            had_active_downloads_in_session_poll.store(true, Ordering::Relaxed);
+        }
+
+        // Trigger safe shutdown countdown ONLY if active downloads were running in this session and just finished
+        if SHUTDOWN_ARMED.load(Ordering::Relaxed) && !busy && had_active_downloads_in_session_poll.load(Ordering::Relaxed) {
+            if SHUTDOWN_ARMED.swap(false, Ordering::SeqCst) {
+                had_active_downloads_in_session_poll.store(false, Ordering::Relaxed);
+                let weak_sd = weak_shutdown_poll.clone();
+                let weak_app_sd = weak.clone();
+                let act_sd = countdown_active_poll.clone();
+                let sec_sd = countdown_seconds_poll.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(sd) = weak_sd.upgrade() {
+                        let app_opt = weak_app_sd.upgrade();
+                        start_shutdown_countdown(
+                            &sd,
+                            app_opt.as_ref().map(|a| a.window()),
+                            &act_sd,
+                            &sec_sd,
+                            weak_sd.clone(),
+                        );
+                    }
+                });
             }
         }
 
@@ -2292,46 +2968,6 @@ fn main() -> anyhow::Result<()> {
             });
         }
 
-        let sel_guard = selected_ids_for_poll.lock().unwrap();
-
-        // cheap fingerprint: skip UI update entirely when nothing changed
-        let mut fp = String::with_capacity(snaps.len() * 48);
-        for s in &snaps {
-            fp.push_str(&format!("{}|{}|{}|{}|{}|{}|{};", s.id, s.status, s.downloaded, s.total.unwrap_or(0), s.speed_bps, s.filename, sel_guard.contains(&s.id)));
-        }
-        let cur_sort_c = sort_col_for_poll.lock().unwrap().clone();
-        let cur_sort_a = *sort_asc_for_poll.lock().unwrap();
-        let state_sig = format!("{}|{}|{}|{}|{}", fp, filter_for_poll.lock().unwrap().clone(), search_for_poll.lock().unwrap().clone(), cur_sort_c, cur_sort_a);
-        {
-            let mut last = last_sig_for_poll.lock().unwrap();
-            if *last == state_sig {
-                continue;
-            }
-            *last = state_sig;
-        }
-
-        // Calculate aggregate metrics across all tasks
-        let total_count = snaps.len() as i32;
-        let downloading_count = snaps.iter().filter(|s| s.status == "downloading" || s.status == "connecting" || s.status == "processing").count() as i32;
-        let completed_count = snaps.iter().filter(|s| s.status == "completed").count() as i32;
-        let paused_count = snaps.iter().filter(|s| s.status == "paused").count() as i32;
-        let queued_count = snaps.iter().filter(|s| s.status == "queued").count() as i32;
-        let error_count = snaps.iter().filter(|s| s.status == "error").count() as i32;
-
-        // IDM Category Counts
-        let count_compressed = snaps.iter().filter(|s| detect_category(&s.filename) == "compressed").count() as i32;
-        let count_programs = snaps.iter().filter(|s| detect_category(&s.filename) == "installer").count() as i32;
-        let count_video = snaps.iter().filter(|s| detect_category(&s.filename) == "video").count() as i32;
-        let count_music = snaps.iter().filter(|s| detect_category(&s.filename) == "audio").count() as i32;
-        let count_documents = snaps.iter().filter(|s| detect_category(&s.filename) == "document").count() as i32;
-
-        let total_speed: u64 = snaps
-            .iter()
-            .filter(|s| s.status == "downloading")
-            .map(|s| s.speed_bps)
-            .sum();
-        let total_speed_text = fmt_speed(total_speed);
-
         // IDM-style: Update all active download progress boxes simultaneously
         let active_dialogs: Vec<(String, slint::Weak<DownloadProgressDialog>)> = {
             progress_registry_for_poll
@@ -2345,18 +2981,35 @@ fn main() -> anyhow::Result<()> {
 
         for (tid, weak_p) in active_dialogs {
             if let Some(s) = snaps.iter().find(|x| x.id == tid) {
-                let is_processing = s.status == "processing";
+                let is_torrent = s.url.starts_with("magnet:?");
+                let t_stats = if is_torrent {
+                    manager_cloned_for_poll.torrent.get_stats(&s.id)
+                } else {
+                    None
+                };
+                let peers_text: String = if let Some(ref ts) = t_stats {
+                    format!("{} peers ({} seeds)", ts.live_peers, ts.live_seeds)
+                } else {
+                    "—".into()
+                };
+
+                let is_checking_files = is_torrent && t_stats.as_ref().map(|ts| ts.state_kind == "initializing").unwrap_or(false);
+                let is_processing = s.status == "processing" || is_checking_files;
                 let pct = if let Some(tot) = s.total {
                     if tot > 0 { (s.downloaded as f32 / tot as f32).min(1.0) } else { 0.0 }
                 } else { 0.0 };
                 let pct_str = format!("{:.0}%", pct * 100.0);
-                let speed_str = if is_processing {
+                let speed_str = if is_checking_files {
+                    "Checking disk...".into()
+                } else if is_processing {
                     "Processing...".into()
                 } else {
                     fmt_speed(s.speed_bps)
                 };
-                let eta_str = if is_processing {
-                    "A few seconds...".into()
+                let eta_str = if is_checking_files || (is_processing && !is_torrent) {
+                    "—".into()
+                } else if s.speed_bps == 0 {
+                    "—".into()
                 } else {
                     fmt_eta(s.eta_secs)
                 };
@@ -2366,16 +3019,44 @@ fn main() -> anyhow::Result<()> {
                 let is_err = s.status == "error";
                 let is_done = s.status == "completed";
                 let st_text: String = match s.status.as_str() {
-                    "processing" => "Merging audio and video...".into(),
+                    "processing" => {
+                        if is_checking_files {
+                            "Verifying existing files on disk...".into()
+                        } else {
+                            "Merging audio and video...".into()
+                        }
+                    },
                     "downloading" => {
-                        if s.downloaded >= s.total.unwrap_or(u64::MAX) && s.total.unwrap_or(0) > 0 {
+                        if is_torrent {
+                            if let Some(ref ts) = t_stats {
+                                if ts.state_kind == "initializing" {
+                                    "Verifying existing files on disk...".into()
+                                } else if ts.live_peers == 0 {
+                                    "Connecting to swarm / DHT...".into()
+                                } else {
+                                    format!("Downloading from swarm ({} peers)...", ts.live_peers)
+                                }
+                            } else {
+                                "Connecting to swarm...".into()
+                            }
+                        } else if s.downloaded >= s.total.unwrap_or(u64::MAX) && s.total.unwrap_or(0) > 0 {
                             "Finalizing download...".into()
                         } else {
                             "Receiving data...".into()
                         }
                     },
                     "paused" => "Paused".into(),
-                    "connecting" => "Connecting...".into(),
+                    "connecting" => {
+                        if is_torrent {
+                            if is_checking_files {
+                                "Verifying existing files on disk...".into()
+                            } else {
+                                "Connecting to swarm / DHT...".into()
+                            }
+                        } else {
+                            "Connecting...".into()
+                        }
+                    },
                     "completed" => "Complete".into(),
                     "error" => {
                         if let Some(err) = &s.error_msg {
@@ -2456,6 +3137,8 @@ fn main() -> anyhow::Result<()> {
                         p.set_time_left(eta_str.into());
                         p.set_is_paused(is_p);
                         p.set_is_error(is_err);
+                        p.set_is_torrent(is_torrent);
+                        p.set_peers_info(peers_text.into());
                         p.set_raw_status(raw_st.into());
                         p.set_resume_capable(resume_cap.into());
                         p.set_status_text(st_text.into());
@@ -2492,6 +3175,55 @@ fn main() -> anyhow::Result<()> {
                 progress_registry_for_poll.dialogs.lock().unwrap().remove(&tid);
             }
         }
+
+        let sel_guard = selected_ids_for_poll.lock().unwrap();
+
+        // Zero-allocation fingerprint: skip UI update entirely when nothing changed
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        for s in &snaps {
+            s.id.hash(&mut hasher);
+            s.status.hash(&mut hasher);
+            s.downloaded.hash(&mut hasher);
+            s.total.unwrap_or(0).hash(&mut hasher);
+            s.speed_bps.hash(&mut hasher);
+            s.filename.hash(&mut hasher);
+            sel_guard.contains(&s.id).hash(&mut hasher);
+        }
+        filter_for_poll.lock().unwrap().hash(&mut hasher);
+        search_for_poll.lock().unwrap().hash(&mut hasher);
+        sort_col_for_poll.lock().unwrap().hash(&mut hasher);
+        sort_asc_for_poll.lock().unwrap().hash(&mut hasher);
+        let state_sig = hasher.finish();
+        {
+            let mut last = last_sig_for_poll.lock().unwrap();
+            if *last == state_sig {
+                continue;
+            }
+            *last = state_sig;
+        }
+
+        // Calculate aggregate metrics across all tasks
+        let total_count = snaps.len() as i32;
+        let downloading_count = snaps.iter().filter(|s| s.status == "downloading" || s.status == "connecting" || s.status == "processing").count() as i32;
+        let completed_count = snaps.iter().filter(|s| s.status == "completed").count() as i32;
+        let paused_count = snaps.iter().filter(|s| s.status == "paused").count() as i32;
+        let queued_count = snaps.iter().filter(|s| s.status == "queued").count() as i32;
+        let error_count = snaps.iter().filter(|s| s.status == "error").count() as i32;
+
+        // IDM Category Counts
+        let count_compressed = snaps.iter().filter(|s| detect_category(&s.filename) == "compressed").count() as i32;
+        let count_programs = snaps.iter().filter(|s| detect_category(&s.filename) == "installer").count() as i32;
+        let count_video = snaps.iter().filter(|s| detect_category(&s.filename) == "video").count() as i32;
+        let count_music = snaps.iter().filter(|s| detect_category(&s.filename) == "audio").count() as i32;
+        let count_documents = snaps.iter().filter(|s| detect_category(&s.filename) == "document").count() as i32;
+
+        let total_speed: u64 = snaps
+            .iter()
+            .filter(|s| s.status == "downloading")
+            .map(|s| s.speed_bps)
+            .sum();
+        let total_speed_text = fmt_speed(total_speed);
 
         // Apply sidebar active filter & search query
         let filt = filter_for_poll.lock().unwrap().clone();

@@ -1158,6 +1158,74 @@
     raf = requestAnimationFrame(() => { raf = 0; for (const p of pills) place(p); });
   }
 
+  // ════════════════════════════════════════════════
+  // Magnet Link Interception & Toast Notification
+  // ════════════════════════════════════════════════
+  function showMagnetToast(magnetName) {
+    const toast = document.createElement("div");
+    toast.style.cssText = `
+      position: fixed; bottom: 24px; right: 24px; z-index: 2147483647;
+      display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+      background: rgba(24, 24, 27, 0.95); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid rgba(10, 132, 255, 0.5); border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(10, 132, 255, 0.3);
+      color: #fff; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      font-size: 13px; font-weight: 600; pointer-events: none; opacity: 0; transform: translateY(12px);
+      transition: all 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    `;
+    toast.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A84FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 15v4a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <span style="color:#0A84FF; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">VDM BitTorrent</span>
+        <span style="color:#f5f5f7; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${magnetName || "Sending Magnet Link to VDM..."}</span>
+      </div>
+    `;
+    document.documentElement.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.style.opacity = "1";
+      toast.style.transform = "translateY(0)";
+    });
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(8px)";
+      setTimeout(() => toast.remove(), 300);
+    }, 2800);
+  }
+
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link) return;
+    const href = (link.getAttribute("href") || "").trim();
+    if (href.startsWith("magnet:?")) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      let magnetName = "";
+      try {
+        const urlParams = new URLSearchParams(href.replace(/^magnet:\?/, ""));
+        magnetName = urlParams.get("dn") || "";
+      } catch (err) {}
+
+      showMagnetToast(magnetName || link.textContent.trim() || "Magnet link sent to VDM");
+
+      try {
+        chrome.runtime.sendMessage({
+          type: "vdm-add",
+          url: href,
+          filename: magnetName,
+          file_size: 0,
+          referrer: location.href
+        });
+      } catch (err) {
+        console.warn("[VDM] Could not dispatch magnet link:", err);
+      }
+    }
+  }, true);
+
   document.addEventListener("pointerdown", (e) => {
     const path = e.composedPath ? e.composedPath() : [];
     for (const p of pills) {

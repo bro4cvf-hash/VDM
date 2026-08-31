@@ -256,10 +256,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // Handle Context Menu download trigger
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const targetUrl = info.linkUrl || info.srcUrl;
-  if (!targetUrl || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) {
+  if (!targetUrl || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://") && !targetUrl.startsWith("magnet:?"))) {
     return;
   }
-  const cookies = await getCookiesForUrl(targetUrl);
+  const cookies = targetUrl.startsWith("magnet:") ? "" : await getCookiesForUrl(targetUrl);
   const payload = {
     url: targetUrl,
     filename: "",

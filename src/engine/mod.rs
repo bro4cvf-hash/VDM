@@ -7,6 +7,7 @@ pub mod rate_limiter;
 pub mod server;
 pub mod startup;
 pub mod sys_icon;
+pub mod torrent;
 pub mod worker;
 pub mod ytdl;
 

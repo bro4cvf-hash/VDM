@@ -1,0 +1,247 @@
+import { Icon } from "../components/icon.slint";
+import { CaptionBtn } from "../components/buttons.slint";
+import { Palette } from "../theme.slint";
+
+// ════════════════════════════════════════════════════════════════════
+// Scheduled System Shutdown Countdown Dialog (Apple / macOS Glass Style)
+// ════════════════════════════════════════════════════════════════════
+export component ShutdownDialog inherits Window {
+    width: 480px;
+    height: 235px;
+    no-frame: true;
+    background: transparent;
+    title: "Scheduled System Shutdown";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in-out property <int> seconds-remaining: 30;
+    in-out property <float> progress: 1.0;
+    in-out property <string> message: "All downloads have finished.";
+
+    callback cancel-shutdown();
+    callback shutdown-now();
+    callback drag-window();
+    callback closed();
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        background: Palette.modal-bg;
+        border-width: 1px;
+        border-color: Palette.border-color;
+        clip: true;
+
+        VerticalLayout {
+            padding: 0;
+            spacing: 0;
+
+            // ── Top Title Bar (Seamlessly blended with background) ──
+            Rectangle {
+                height: 38px;
+
+                TouchArea {
+                    pointer-event(pe) => {
+                        if (pe.button == PointerEventButton.left && pe.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-window();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 10px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            y: (parent.height - self.height) / 2;
+
+                            Image {
+                                source: @image-url("../icons/vdm.svg");
+                                width: 16px;
+                                height: 16px;
+                            }
+                        }
+
+                        Text {
+                            text: "Scheduled Shutdown";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Palette.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    CaptionBtn {
+                        glyph: "✕";
+                        danger: true;
+                        clicked => {
+                            root.cancel-shutdown();
+                            root.closed();
+                        }
+                    }
+                }
+            }
+
+            // ── Content Area ──
+            VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 10px;
+                padding-bottom: 16px;
+                spacing: 14px;
+
+                // ── Info Header Card ──
+                Rectangle {
+                    border-radius: 10px;
+                    background: Palette.surface-bg;
+                    border-width: 1px;
+                    border-color: Palette.border-color;
+
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
+                        spacing: 14px;
+
+                        Rectangle {
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 8px;
+                            background: #FF9F0A18;
+                            border-width: 1px;
+                            border-color: #FF9F0A35;
+                            y: (parent.height - self.height) / 2;
+
+                            Icon {
+                                source: @image-url("../icons/alert.svg");
+                                width: 18px;
+                                height: 18px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                tint: #FFB340;
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 3px;
+                            horizontal-stretch: 1;
+
+                            Text {
+                                text: root.message;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Palette.text-primary;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: "Your computer will shut down in " + root.seconds-remaining + " seconds.";
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Palette.warning;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+
+                // ── Countdown Progress Bar ──
+                VerticalLayout {
+                    spacing: 4px;
+
+                    Rectangle {
+                        height: 8px;
+                        border-radius: 4px;
+                        background: Palette.input-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+                        clip: true;
+
+                        Rectangle {
+                            x: 0;
+                            y: 0;
+                            height: 100%;
+                            width: parent.width * Math.max(0.0, Math.min(1.0, root.progress));
+                            border-radius: 4px;
+                            background: root.seconds-remaining <= 10 ? Palette.danger : Palette.warning;
+                            animate width { duration: 250ms; easing: ease-out; }
+                            animate background { duration: 200ms; }
+                        }
+                    }
+                }
+
+                // ── Action Buttons ──
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+
+                    // Shut Down Now Button (Secondary)
+                    Rectangle {
+                        height: 32px;
+                        min-width: 110px;
+                        border-radius: 6px;
+                        background: sdn-t.pressed ? Palette.hover-bg : sdn-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+                        animate background { duration: 120ms; }
+
+                        sdn-t := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.shutdown-now(); }
+                        }
+
+                        Text {
+                            text: "Shut Down Now";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: Palette.text-primary;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+
+                    // Cancel Shutdown Button (Primary Prominent)
+                    Rectangle {
+                        height: 32px;
+                        min-width: 130px;
+                        border-radius: 6px;
+                        background: cnl-t.pressed ? Palette.accent-pressed : cnl-t.has-hover ? Palette.accent-hover : Palette.accent;
+                        drop-shadow-blur: cnl-t.has-hover ? 10px : 2px;
+                        drop-shadow-color: Palette.accent-tint-bg;
+                        animate background { duration: 120ms; }
+
+                        cnl-t := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.cancel-shutdown();
+                                root.closed();
+                            }
+                        }
+
+                        Text {
+                            text: "Cancel Shutdown";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #FFFFFF;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

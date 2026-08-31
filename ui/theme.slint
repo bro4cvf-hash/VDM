@@ -1,4 +1,181 @@
-// ── macOS Sonoma Dark Palette ──
-// window #1E1E1E | surface #28282A | input #2C2C2E
-// border #3A3A3C | accent #0A84FF | text #FFFFFF / #98989D / #7C7C80
-// ponytail: colors stay inline where used; promote to a global here if theming is ever needed.
+// ══════════════════════════════════════════════════════════════════
+// VDM Unified Multi-Theme Design System & Color Palette
+// ══════════════════════════════════════════════════════════════════
+// Themes:
+// 0: Dark (macOS Sonoma Dark - Default)
+// 1: Light (Clean Apple HIG Light)
+// 2: Dark Purple (Midnight Violet)
+// 3: Ocean Slate (Deep Blue Marine)
+
+export global Palette {
+    in-out property <int> active-theme: 0;
+
+    out property <bool> is-dark: active-theme != 1;
+
+    // ── Surfaces & Backgrounds ──
+    out property <color> base-bg:
+        active-theme == 1 ? #F2F2F7 :
+        active-theme == 2 ? #161022 :
+        active-theme == 3 ? #0B1120 :
+        #1E1E1E;
+
+    out property <color> sidebar-bg:
+        active-theme == 1 ? #EAEAEF :
+        active-theme == 2 ? #120D1C :
+        active-theme == 3 ? #080D1A :
+        #18181A;
+
+    out property <color> surface-bg:
+        active-theme == 1 ? #FFFFFF :
+        active-theme == 2 ? #201731 :
+        active-theme == 3 ? #151E32 :
+        #242426;
+
+    out property <color> surface-subtle:
+        active-theme == 1 ? #F8F8FC :
+        active-theme == 2 ? #1C142B :
+        active-theme == 3 ? #11192B :
+        #202022;
+
+    out property <color> card-bg:
+        active-theme == 1 ? #FFFFFF :
+        active-theme == 2 ? #1C142B :
+        active-theme == 3 ? #11192B :
+        #18181A;
+
+    out property <color> card-secondary-bg:
+        active-theme == 1 ? #E5E5EA :
+        active-theme == 2 ? #150F22 :
+        active-theme == 3 ? #0B1120 :
+        #141416;
+
+    out property <color> modal-bg:
+        active-theme == 1 ? #F2F2F7 :
+        active-theme == 2 ? #1A1327 :
+        active-theme == 3 ? #0E1626 :
+        #1E1E20;
+
+    // ── Inputs & Controls ──
+    out property <color> input-bg:
+        active-theme == 1 ? #E5E5EA :
+        active-theme == 2 ? #2A1F40 :
+        active-theme == 3 ? #1E293B :
+        #2C2C2E;
+
+    out property <color> input-focus-bg:
+        active-theme == 1 ? #FFFFFF :
+        active-theme == 2 ? #241A37 :
+        active-theme == 3 ? #172033 :
+        #232325;
+
+    // ── Borders & Separators ──
+    out property <color> border-color:
+        active-theme == 1 ? #D1D1D6 :
+        active-theme == 2 ? #3A2A57 :
+        active-theme == 3 ? #293548 :
+        #3A3A3C;
+
+    out property <color> border-subtle:
+        active-theme == 1 ? #E5E5EA :
+        active-theme == 2 ? #2C1F43 :
+        active-theme == 3 ? #1E293B :
+        #2E2E32;
+
+    // ── Interactive Hover & Selection ──
+    out property <color> hover-bg:
+        active-theme == 1 ? #0000000D :
+        active-theme == 2 ? #FFFFFF14 :
+        active-theme == 3 ? #FFFFFF14 :
+        #FFFFFF14;
+
+    out property <color> row-hover-bg:
+        active-theme == 1 ? #E5E5EA :
+        active-theme == 2 ? #261B3B :
+        active-theme == 3 ? #19243C :
+        #232325;
+
+    out property <color> row-selected-bg:
+        active-theme == 1 ? #007AFF :
+        active-theme == 2 ? #AF52DE :
+        active-theme == 3 ? #0284C7 :
+        #0A84FF;
+
+    out property <color> row-selected-inactive:
+        active-theme == 1 ? #D1D1D6 :
+        active-theme == 2 ? #352550 :
+        active-theme == 3 ? #1E2E4A :
+        #333336;
+
+    // ── Primary Accents ──
+    out property <color> accent:
+        active-theme == 1 ? #007AFF :
+        active-theme == 2 ? #AF52DE :
+        active-theme == 3 ? #38BDF8 :
+        #0A84FF;
+
+    out property <color> accent-hover:
+        active-theme == 1 ? #1E90FF :
+        active-theme == 2 ? #C76DF6 :
+        active-theme == 3 ? #0EA5E9 :
+        #2394FF;
+
+    out property <color> accent-pressed:
+        active-theme == 1 ? #0055B3 :
+        active-theme == 2 ? #8A34B8 :
+        active-theme == 3 ? #0369A1 :
+        #0055B3;
+
+    out property <color> accent-gradient-start:
+        active-theme == 1 ? #1E90FF :
+        active-theme == 2 ? #C76DF6 :
+        active-theme == 3 ? #38BDF8 :
+        #2394FF;
+
+    out property <color> accent-gradient-end:
+        active-theme == 1 ? #007AFF :
+        active-theme == 2 ? #AF52DE :
+        active-theme == 3 ? #0284C7 :
+        #0A84FF;
+
+    out property <color> accent-light:
+        active-theme == 1 ? #0071A4 :
+        active-theme == 2 ? #DA8FFF :
+        active-theme == 3 ? #7DD3FC :
+        #64D2FF;
+
+    out property <color> accent-tint-bg:
+        active-theme == 1 ? #007AFF16 :
+        active-theme == 2 ? #AF52DE1C :
+        active-theme == 3 ? #38BDF81C :
+        #0A84FF1E;
+
+    // ── Text & Typography ──
+    out property <color> text-primary:
+        active-theme == 1 ? #1C1C1E :
+        active-theme == 2 ? #F9F5FF :
+        active-theme == 3 ? #F8FAFC :
+        #FFFFFF;
+
+    out property <color> text-secondary:
+        active-theme == 1 ? #48484A :
+        active-theme == 2 ? #B8A9D1 :
+        active-theme == 3 ? #94A3B8 :
+        #98989D;
+
+    out property <color> text-tertiary:
+        active-theme == 1 ? #636366 :
+        active-theme == 2 ? #8C7CA6 :
+        active-theme == 3 ? #64748B :
+        #7C7C80;
+
+    out property <color> text-muted:
+        active-theme == 1 ? #8E8E93 :
+        active-theme == 2 ? #63557A :
+        active-theme == 3 ? #475569 :
+        #5C5C60;
+
+    // ── Semantic Status Colors ──
+    out property <color> success: #30D158;
+    out property <color> danger: #FF453A;
+    out property <color> warning: #FF9F0A;
+}

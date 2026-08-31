@@ -1,5 +1,6 @@
 import { Icon } from "../components/icon.slint";
 import { CaptionBtn } from "../components/buttons.slint";
+import { Palette } from "../theme.slint";
 
 // ════════════════════════════════════════════════
 // Download Complete Dialog (IDM-style Modern Glass)
@@ -35,9 +36,9 @@ export component CompleteDialog inherits Window {
         width: 100%;
         height: 100%;
         border-radius: 12px;
-        background: #18181A;
+        background: Palette.modal-bg;
         border-width: 1px;
-        border-color: #2E2E32;
+        border-color: Palette.border-color;
         clip: true;
 
         VerticalLayout {
@@ -87,7 +88,7 @@ export component CompleteDialog inherits Window {
                             text: "Download complete";
                             font-size: 12.5px;
                             font-weight: 600;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             vertical-alignment: center;
                         }
                     }
@@ -117,9 +118,9 @@ export component CompleteDialog inherits Window {
                         width: 40px;
                         height: 40px;
                         border-radius: 8px;
-                        background: #202024;
+                        background: Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: #303036;
+                        border-color: Palette.border-subtle;
 
                         if root.has-sys-icon: Image {
                             source: root.file-icon;
@@ -135,7 +136,7 @@ export component CompleteDialog inherits Window {
                             height: 20px;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
-                            tint: #30D158;
+                            tint: Palette.success;
                         }
                     }
 
@@ -148,13 +149,13 @@ export component CompleteDialog inherits Window {
                             text: "Download complete";
                             font-size: 13.5px;
                             font-weight: 700;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                         }
 
                         Text {
                             text: "Downloaded " + root.size + (root.total-bytes-text != "" ? " (" + root.total-bytes-text + ")" : "");
                             font-size: 11.5px;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                         }
                     }
                 }
@@ -162,13 +163,13 @@ export component CompleteDialog inherits Window {
                 // Address field
                 VerticalLayout {
                     spacing: 3px;
-                    Text { text: "Address"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #8E8E93; }
+                    Text { text: "Address"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: Palette.text-secondary; }
                     Rectangle {
                         height: 28px;
                         border-radius: 5px;
-                        background: #141416;
+                        background: Palette.input-bg;
                         border-width: 1px;
-                        border-color: #242428;
+                        border-color: Palette.border-color;
                         clip: true;
                         HorizontalLayout {
                             padding-left: 8px;
@@ -176,7 +177,7 @@ export component CompleteDialog inherits Window {
                             Text {
                                 text: root.url;
                                 font-size: 11px;
-                                color: #64D2FF;
+                                color: Palette.accent-light;
                                 overflow: elide;
                                 vertical-alignment: center;
                             }
@@ -187,13 +188,13 @@ export component CompleteDialog inherits Window {
                 // The file saved as field
                 VerticalLayout {
                     spacing: 3px;
-                    Text { text: "The file saved as"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #8E8E93; }
+                    Text { text: "The file saved as"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: Palette.text-secondary; }
                     Rectangle {
                         height: 28px;
                         border-radius: 5px;
-                        background: #141416;
+                        background: Palette.input-bg;
                         border-width: 1px;
-                        border-color: #242428;
+                        border-color: Palette.border-color;
                         clip: true;
                         HorizontalLayout {
                             padding-left: 8px;
@@ -201,7 +202,7 @@ export component CompleteDialog inherits Window {
                             Text {
                                 text: root.location;
                                 font-size: 11px;
-                                color: #FFFFFF;
+                                color: Palette.text-primary;
                                 overflow: elide;
                                 vertical-alignment: center;
                             }
@@ -219,10 +220,10 @@ export component CompleteDialog inherits Window {
                         height: 32px;
                         min-width: 78px;
                         border-radius: 6px;
-                        background: op-t.pressed ? #0055B3 :
-                                    op-t.has-hover ? #2394FF : #0A84FF;
+                        background: op-t.pressed ? Palette.accent-pressed :
+                                    op-t.has-hover ? Palette.accent-hover : Palette.accent;
                         drop-shadow-blur: op-t.has-hover ? 10px : 2px;
-                        drop-shadow-color: #0A84FF55;
+                        drop-shadow-color: Palette.accent-tint-bg;
                         animate background { duration: 120ms; }
 
                         op-t := TouchArea {
@@ -246,10 +247,10 @@ export component CompleteDialog inherits Window {
                         height: 32px;
                         min-width: 94px;
                         border-radius: 6px;
-                        background: opw-t.pressed ? #323236 :
-                                    opw-t.has-hover ? #2A2A2E : #202024;
+                        background: opw-t.pressed ? Palette.hover-bg :
+                                    opw-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opw-t.has-hover ? #404046 : #303034;
+                        border-color: Palette.border-subtle;
                         animate background { duration: 120ms; }
 
                         opw-t := TouchArea {
@@ -262,7 +263,7 @@ export component CompleteDialog inherits Window {
                             text: "Open with…";
                             font-size: 12px;
                             font-weight: 500;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
@@ -273,10 +274,10 @@ export component CompleteDialog inherits Window {
                         height: 32px;
                         min-width: 94px;
                         border-radius: 6px;
-                        background: opf-t.pressed ? #323236 :
-                                    opf-t.has-hover ? #2A2A2E : #202024;
+                        background: opf-t.pressed ? Palette.hover-bg :
+                                    opf-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opf-t.has-hover ? #404046 : #303034;
+                        border-color: Palette.border-subtle;
                         animate background { duration: 120ms; }
 
                         opf-t := TouchArea {
@@ -289,7 +290,7 @@ export component CompleteDialog inherits Window {
                             text: "Open folder";
                             font-size: 12px;
                             font-weight: 500;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
@@ -300,10 +301,10 @@ export component CompleteDialog inherits Window {
                         height: 32px;
                         min-width: 72px;
                         border-radius: 6px;
-                        background: cl-t.pressed ? #323236 :
-                                    cl-t.has-hover ? #2A2A2E : #202024;
+                        background: cl-t.pressed ? Palette.hover-bg :
+                                    cl-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: cl-t.has-hover ? #404046 : #303034;
+                        border-color: Palette.border-subtle;
                         animate background { duration: 120ms; }
 
                         cl-t := TouchArea {
@@ -314,7 +315,7 @@ export component CompleteDialog inherits Window {
                             text: "Close";
                             font-size: 12px;
                             font-weight: 500;
-                            color: #D1D1D6;
+                            color: Palette.text-primary;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
@@ -336,9 +337,9 @@ export component CompleteDialog inherits Window {
                             height: 15px;
                             y: (parent.height - self.height) / 2;
                             border-radius: 4px;
-                            background: root.dont-show-again ? #0A84FF : #222225;
+                            background: root.dont-show-again ? Palette.accent : Palette.card-secondary-bg;
                             border-width: 1px;
-                            border-color: root.dont-show-again ? #0A84FF : #404046;
+                            border-color: root.dont-show-again ? Palette.accent : Palette.border-color;
                             animate background { duration: 120ms; }
                             TouchArea { clicked => { root.dont-show-again = !root.dont-show-again; root.dont-show-changed(root.dont-show-again); } }
                             if root.dont-show-again: Icon {
@@ -353,7 +354,7 @@ export component CompleteDialog inherits Window {
                         Text {
                             text: "Don't show this dialog again";
                             font-size: 11.5px;
-                            color: #8E8E93;
+                            color: Palette.text-secondary;
                             vertical-alignment: center;
                             TouchArea { clicked => { root.dont-show-again = !root.dont-show-again; root.dont-show-changed(root.dont-show-again); } }
                         }
@@ -363,12 +364,12 @@ export component CompleteDialog inherits Window {
                     Rectangle {
                         height: 28px;
                         border-radius: 6px;
-                        background: drag-t.pressed ? #0055B3 :
-                                    drag-t.has-hover ? #0A84FF : #0A84FF20;
+                        background: drag-t.pressed ? Palette.accent-pressed :
+                                    drag-t.has-hover ? Palette.accent-hover : Palette.accent-tint-bg;
                         border-width: 1px;
-                        border-color: drag-t.has-hover ? #0A84FF : #0A84FF55;
+                        border-color: drag-t.has-hover ? Palette.accent : Palette.border-subtle;
                         drop-shadow-blur: drag-t.has-hover ? 10px : 0px;
-                        drop-shadow-color: #0A84FF66;
+                        drop-shadow-color: Palette.accent-tint-bg;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -388,7 +389,7 @@ export component CompleteDialog inherits Window {
                                     height: 12px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: drag-t.has-hover ? #FFFFFF : #64D2FF;
+                                    tint: drag-t.has-hover ? #FFFFFF : Palette.accent-light;
                                 }
                             }
 
@@ -396,7 +397,7 @@ export component CompleteDialog inherits Window {
                                 text: "Drag / Reveal";
                                 font-size: 11px;
                                 font-weight: 600;
-                                color: drag-t.has-hover ? #FFFFFF : #64D2FF;
+                                color: drag-t.has-hover ? #FFFFFF : Palette.accent-light;
                                 vertical-alignment: center;
                             }
                         }
@@ -414,9 +415,9 @@ export component CompleteDialog inherits Window {
                             y: -28px;
                             height: 22px;
                             border-radius: 4px;
-                            background: #242428;
+                            background: Palette.surface-bg;
                             border-width: 1px;
-                            border-color: #44444C;
+                            border-color: Palette.border-color;
                             drop-shadow-blur: 10px;
                             drop-shadow-color: #000000dd;
                             z: 100;
@@ -429,7 +430,7 @@ export component CompleteDialog inherits Window {
                                     text: "Drag or click to reveal in Explorer";
                                     font-size: 10px;
                                     font-weight: 500;
-                                    color: #FFFFFF;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }

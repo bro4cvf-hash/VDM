@@ -1,0 +1,599 @@
+import { ScrollView } from "std-widgets.slint";
+import { Icon } from "../components/icon.slint";
+import { CaptionBtn } from "../components/buttons.slint";
+import { Field } from "../components/inputs.slint";
+import { TorrentFileItem } from "../types.slint";
+import { Palette } from "../theme.slint";
+
+// ════════════════════════════════════════════════
+// Torrent File Selection Dialog (Apple HIG Glass)
+// ════════════════════════════════════════════════
+export component TorrentFileSelectDialog inherits Window {
+    preferred-width: 640px;
+    preferred-height: 500px;
+    min-width: 540px;
+    min-height: 400px;
+    no-frame: true;
+    background: transparent;
+    title: "Select Files to Download";
+    default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
+
+    in-out property <string> torrent-name: "Torrent Package";
+    in-out property <string> url: "";
+    in-out property <string> folder: "";
+    in-out property <string> total-size-text: "—";
+    in-out property <string> selected-size-text: "—";
+    in-out property <int> selected-count: 0;
+    in-out property <int> total-files-count: 0;
+    in-out property <string> search-filter: "";
+    in-out property <bool> is-fetching-meta: false;
+    in-out property <string> meta-status-text: "Fetching torrent metadata...";
+    in-out property <[TorrentFileItem]> files: [];
+
+    callback confirm(string, string); // folder, selected_indices
+    callback pick-folder() -> string;
+    callback toggle-file(int); // index
+    callback select-all(bool); // true for all, false for none
+    callback closed();
+    callback drag-window();
+    callback minimize-window();
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        background: Palette.modal-bg;
+        border-width: 1px;
+        border-color: Palette.border-color;
+        clip: true;
+
+        VerticalLayout {
+            padding: 0;
+            spacing: 0;
+
+            // ── Draggable Titlebar Header (Seamless Blending) ──
+            Rectangle {
+                height: 38px;
+                background: transparent;
+
+                TouchArea {
+                    pointer-event(pe) => {
+                        if (pe.button == PointerEventButton.left && pe.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-window();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 8px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            y: (parent.height - self.height) / 2;
+
+                            Image {
+                                source: @image-url("../icons/vdm.svg");
+                                width: 16px;
+                                height: 16px;
+                            }
+                        }
+
+                        Text {
+                            text: "Select Files to Download";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Palette.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 2px;
+
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 28px;
+                            CaptionBtn {
+                                glyph: "─";
+                                clicked => { root.minimize-window(); }
+                            }
+                        }
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 28px;
+                            CaptionBtn {
+                                glyph: "✕";
+                                danger: true;
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Torrent Metadata & Folder Card (Elevated Apple HIG Surface) ──
+            Rectangle {
+                background: transparent;
+
+                VerticalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 4px;
+                    padding-bottom: 10px;
+
+                    Rectangle {
+                        border-radius: 9px;
+                        background: Palette.surface-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-color;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+
+                            // Torrent Name & Total Size Row
+                            HorizontalLayout {
+                                 spacing: 10px;
+
+                                 // Package Icon
+                                 Rectangle {
+                                     width: 28px;
+                                     height: 28px;
+                                     y: (parent.height - self.height) / 2;
+                                     border-radius: 6px;
+                                     background: Palette.card-secondary-bg;
+                                     border-width: 1px;
+                                     border-color: Palette.border-subtle;
+
+                                     Icon {
+                                         source: @image-url("../icons/archive.svg");
+                                         width: 14px;
+                                         height: 14px;
+                                         x: (parent.width - self.width) / 2;
+                                         y: (parent.height - self.height) / 2;
+                                         tint: Palette.accent;
+                                     }
+                                 }
+
+                                 // Torrent Name
+                                 Text {
+                                     text: root.torrent-name;
+                                     font-size: 13px;
+                                     font-weight: 600;
+                                     color: Palette.text-primary;
+                                     overflow: elide;
+                                     horizontal-stretch: 1;
+                                     vertical-alignment: center;
+                                 }
+
+                                 // Total Size Badge
+                                 Rectangle {
+                                     height: 26px;
+                                     y: (parent.height - self.height) / 2;
+                                     border-radius: 6px;
+                                     background: Palette.card-secondary-bg;
+                                     border-width: 1px;
+                                     border-color: Palette.border-subtle;
+
+                                     HorizontalLayout {
+                                         padding-left: 9px;
+                                         padding-right: 9px;
+
+                                         Text {
+                                             text: "Total: " + root.total-size-text;
+                                             font-size: 11.5px;
+                                             font-weight: 600;
+                                             color: Palette.text-secondary;
+                                             vertical-alignment: center;
+                                         }
+                                     }
+                                 }
+                            }
+
+                            // Save Location Row
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                Text {
+                                    text: "SAVE TO";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    letter-spacing: 0.6px;
+                                    color: Palette.text-secondary;
+                                    vertical-alignment: center;
+                                    width: 52px;
+                                }
+
+                                Field {
+                                    h: 28px;
+                                    font-size: 12px;
+                                    radius: 6px;
+                                    pad-x: 8px;
+                                    placeholder: "Save folder path...";
+                                    text <=> root.folder;
+                                    horizontal-stretch: 1;
+                                }
+
+                                Rectangle {
+                                    width: 84px;
+                                    height: 28px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 6px;
+                                    background: br-touch.pressed ? Palette.hover-bg :
+                                                br-touch.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                                    border-width: 1px;
+                                    border-color: Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+
+                                    br-touch := TouchArea {
+                                        clicked => {
+                                            root.folder = root.pick-folder();
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 6px;
+                                        padding-right: 6px;
+                                        spacing: 5px;
+
+                                        Rectangle {
+                                            width: 12px;
+                                            height: 12px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: @image-url("../icons/folder.svg");
+                                                width: 12px;
+                                                height: 12px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                tint: Palette.text-secondary;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Browse…";
+                                            font-size: 11px;
+                                            font-weight: 500;
+                                            color: Palette.text-primary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Toolbar & Action Pills ──
+            Rectangle {
+                height: 34px;
+                background: transparent;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 8px;
+                    alignment: space-between;
+
+                    // Select All / Deselect All Action Pills
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Rectangle {
+                            height: 26px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 6px;
+                            background: sa-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                            border-width: 1px;
+                            border-color: Palette.border-subtle;
+                            animate background { duration: 120ms; }
+
+                            sa-t := TouchArea {
+                                clicked => { root.select-all(true); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                Text {
+                                    text: "Select All";
+                                    font-size: 11px;
+                                    font-weight: 500;
+                                    color: Palette.text-primary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 26px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 6px;
+                            background: da-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                            border-width: 1px;
+                            border-color: Palette.border-subtle;
+                            animate background { duration: 120ms; }
+
+                            da-t := TouchArea {
+                                clicked => { root.select-all(false); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                Text {
+                                    text: "Deselect All";
+                                    font-size: 11px;
+                                    font-weight: 500;
+                                    color: Palette.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Search / Filter Field
+                    HorizontalLayout {
+                        width: 180px;
+
+                        Field {
+                            h: 26px;
+                            font-size: 11.5px;
+                            radius: 6px;
+                            pad-x: 8px;
+                            placeholder: "Filter files...";
+                            text <=> root.search-filter;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+            }
+
+            // ── Scrollable File List Container ──
+            Rectangle {
+                vertical-stretch: 1;
+                background: Palette.input-bg;
+
+                if root.is-fetching-meta: VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        x: (parent.width - self.width) / 2;
+
+                        Icon {
+                            source: @image-url("../icons/zap.svg");
+                            width: 24px;
+                            height: 24px;
+                            tint: Palette.accent;
+                        }
+                    }
+
+                    Text {
+                        text: root.meta-status-text;
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Palette.accent;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                if !root.is-fetching-meta: ScrollView {
+                    viewport-width: self.width;
+
+                    VerticalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 3px;
+
+                        for item[i] in root.files: Rectangle {
+                            height: 34px;
+                            border-radius: 6px;
+                            background: row-touch.has-hover ? Palette.row-hover-bg :
+                                        item.selected ? Palette.row-selected-bg : transparent;
+                            border-width: 1px;
+                            border-color: item.selected ? Palette.border-color : transparent;
+                            animate background { duration: 100ms; }
+
+                            row-touch := TouchArea {
+                                clicked => {
+                                    root.toggle-file(item.id);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 12px;
+                                spacing: 10px;
+
+                                // Custom Checkbox (Vertically Centered on Left)
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 4px;
+                                    background: item.selected ? Palette.accent : Palette.card-secondary-bg;
+                                    border-width: 1px;
+                                    border-color: item.selected ? Palette.accent : Palette.border-color;
+                                    animate background { duration: 100ms; }
+
+                                    if item.selected: Icon {
+                                        source: @image-url("../icons/tick.svg");
+                                        width: 10px;
+                                        height: 10px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: #FFFFFF;
+                                    }
+                                }
+
+                                // File Type Icon (Vertically Centered)
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    y: (parent.height - self.height) / 2;
+
+                                    Icon {
+                                        source: item.file-type == "video" ? @image-url("../icons/film.svg") :
+                                                item.file-type == "audio" ? @image-url("../icons/music.svg") :
+                                                item.file-type == "archive" ? @image-url("../icons/archive.svg") :
+                                                item.file-type == "installer" ? @image-url("../icons/cpu.svg") :
+                                                item.file-type == "image" ? @image-url("../icons/image.svg") :
+                                                @image-url("../icons/file.svg");
+                                        width: 14px;
+                                        height: 14px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: item.file-type == "video" ? #AF52DE :
+                                              item.file-type == "audio" ? #30D158 :
+                                              item.file-type == "archive" ? #FF9F0A :
+                                              item.file-type == "installer" ? Palette.accent :
+                                              item.file-type == "image" ? Palette.accent-light : Palette.text-secondary;
+                                    }
+                                }
+
+                                // File Name / Path (Takes Remaining Space)
+                                Text {
+                                    text: item.name;
+                                    font-size: 12.5px;
+                                    font-weight: item.selected ? 500 : 400;
+                                    color: item.selected ? Palette.text-primary : Palette.text-secondary;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                    vertical-alignment: center;
+                                }
+
+                                // File Size (Right Aligned)
+                                Text {
+                                    text: item.size-text;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    color: item.selected ? Palette.text-primary : Palette.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Footer Action Bar (Strict Vertical Alignment & Seamless Blend) ──
+            Rectangle {
+                height: 52px;
+                background: transparent;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 12px;
+
+                    // Selection Summary (Vertically Centered)
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        Text {
+                            text: "Selected: " + root.selected-count + " / " + root.total-files-count + " files (" + root.selected-size-text + ")";
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            color: Palette.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // Action Buttons (Vertically Centered)
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // Cancel Button
+                        Rectangle {
+                            height: 32px;
+                            min-width: 76px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 7px;
+                            background: c-btn.pressed ? Palette.hover-bg :
+                                        c-btn.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                            border-width: 1px;
+                            border-color: Palette.border-subtle;
+                            animate background { duration: 120ms; }
+
+                            c-btn := TouchArea {
+                                clicked => { root.closed(); }
+                            }
+
+                            Text {
+                                text: "Cancel";
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: c-btn.has-hover ? Palette.text-primary : Palette.text-secondary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Download Selected Button
+                        Rectangle {
+                            height: 32px;
+                            min-width: 148px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 7px;
+                            background: dl-btn.pressed ? Palette.accent-pressed :
+                                        dl-btn.has-hover ? Palette.accent-hover : Palette.accent;
+                            drop-shadow-blur: dl-btn.has-hover ? 12px : 4px;
+                            drop-shadow-color: Palette.accent-tint-bg;
+                            animate background { duration: 120ms; }
+
+                            dl-btn := TouchArea {
+                                clicked => {
+                                    root.confirm(root.folder, "");
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 7px;
+
+                                Rectangle {
+                                    width: 12px;
+                                    height: 12px;
+                                    y: (parent.height - self.height) / 2;
+                                    Icon {
+                                        source: @image-url("../icons/download.svg");
+                                        width: 12px;
+                                        height: 12px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: #FFFFFF;
+                                    }
+                                }
+
+                                Text {
+                                    text: "Download Selected";
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: #FFFFFF;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

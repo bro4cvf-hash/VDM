@@ -12,6 +12,64 @@ pub struct Probe {
     pub filename_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MagnetInfo {
+    pub info_hash: String,
+    pub display_name: Option<String>,
+    pub total_size: Option<u64>,
+    pub trackers: Vec<String>,
+}
+
+pub fn parse_magnet(raw: &str) -> Option<MagnetInfo> {
+    let trimmed = raw.trim();
+    if !trimmed.starts_with("magnet:?") {
+        return None;
+    }
+    let query = &trimmed["magnet:?".len()..];
+    let mut info = MagnetInfo::default();
+
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+        let val = parts.next().unwrap_or("").trim();
+        let decoded = percent_decode(val);
+
+        match key.as_str() {
+            "xt" => {
+                let dec_lower = decoded.to_ascii_lowercase();
+                if let Some(pos) = dec_lower.find("urn:btih:") {
+                    info.info_hash = decoded[pos + "urn:btih:".len()..].to_string();
+                } else if let Some(pos) = dec_lower.find("urn:btmh:") {
+                    info.info_hash = decoded[pos + "urn:btmh:".len()..].to_string();
+                } else {
+                    info.info_hash = decoded;
+                }
+            }
+            "dn" => {
+                if !decoded.is_empty() {
+                    info.display_name = Some(decoded);
+                }
+            }
+            "xl" => {
+                if let Ok(bytes) = decoded.parse::<u64>() {
+                    info.total_size = Some(bytes);
+                }
+            }
+            "tr" => {
+                if !decoded.is_empty() {
+                    info.trackers.push(decoded);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if info.info_hash.is_empty() && info.display_name.is_none() {
+        return None;
+    }
+    Some(info)
+}
+
 fn cd_filename(v: &str) -> Option<String> {
     // RFC 5987 first, then plain filename=
     for part in v.split(';') {
@@ -77,6 +135,22 @@ pub fn extension_from_mime(mime: &str) -> Option<&'static str> {
 }
 
 pub fn infer_filename_from_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("magnet:?") {
+        if let Some(mag) = parse_magnet(trimmed) {
+            if let Some(dn) = mag.display_name {
+                if !dn.is_empty() {
+                    return Some(dn);
+                }
+            }
+            if !mag.info_hash.is_empty() {
+                let short = &mag.info_hash[..mag.info_hash.len().min(10)];
+                return Some(format!("torrent_{short}"));
+            }
+        }
+        return Some("torrent_download".into());
+    }
+
     let u = Url::parse(raw).ok()?;
 
     // 1. Query parameters
@@ -191,6 +265,26 @@ pub async fn probe(
     url: &str,
     extra_headers: &HashMap<String, String>,
 ) -> anyhow::Result<Probe> {
+    let trimmed = url.trim();
+    if trimmed.starts_with("magnet:?") {
+        let mag = parse_magnet(trimmed).unwrap_or_default();
+        let fname = mag.display_name.or_else(|| {
+            if !mag.info_hash.is_empty() {
+                let short = &mag.info_hash[..mag.info_hash.len().min(10)];
+                Some(format!("torrent_{short}"))
+            } else {
+                Some("torrent_download".into())
+            }
+        });
+        return Ok(Probe {
+            total: mag.total_size,
+            accept_ranges: true,
+            etag: String::new(),
+            last_modified: String::new(),
+            filename_hint: fname,
+        });
+    }
+
     let is_sub_or_unranged = url.contains("timedtext") || url.ends_with(".vtt") || url.ends_with(".srt");
 
     let resp = if is_sub_or_unranged {

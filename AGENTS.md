@@ -1,4 +1,4 @@
-﻿# VDM AI Pair-Programming Guidelines & Invariants
+# VDM AI Pair-Programming Guidelines & Invariants
 
 ## 1. Pre-Session Protocol
 - **Read `PROJECT.md` First**: Before making architectural decisions or modifying code, inspect [PROJECT.md](file:///g:/AI/VDM/PROJECT.md) to understand the exact module boundaries, Slint property bindings, and database schemas.
@@ -9,6 +9,7 @@
   cargo build --release
   ```
   Ensure the build completes with zero errors, zero warnings, and produces a functional `target\release\vdm.exe`.
+- **No-Polling Invariant for Background Tasks**: Never loop or repeatedly check `manage_task(Action='status')` on long-running commands (e.g. `cargo build --release` or large downloads). After launching the command, immediately end your turn; the system's reactive notification mechanism will automatically wake the agent upon task completion.
 - **Production-Level Quality**:
   - No dummy/mock placeholders or half-baked logic.
   - Thread safety: Use `Arc<Mutex<T>>`, `AtomicBool`, and Tokio channels responsibly without blocking the async runtime or the UI main thread.
@@ -41,6 +42,10 @@
     - `ui/components/<name>.slint` for reusable controls (buttons, inputs, dropdowns, icons, table headers).
     - `ui/views/<name>.slint` for major distinct panels (e.g. sidebar, toolbar, downloads table, status bar).
     - `ui/dialogs/<name>.slint` for distinct modal dialogs and overlays.
+  - **Slint Layout Alignment Invariants (Prevent Horizontal Bunching & Offset Icons)**:
+    - In Slint, setting `alignment: center` on a `HorizontalLayout` centers all children horizontally along the primary axis and **disables horizontal stretching**! Never put `alignment: center` on a `HorizontalLayout` if children should flow left-to-right across the row.
+    - To vertically align elements inside a `HorizontalLayout`, explicitly set `vertical-alignment: center;` on `Text` and `y: (parent.height - self.height) / 2;` on icons, checkboxes, and buttons.
+    - Keep repeated list row prefixes (e.g. Checkbox at `x = 10px`, Icon at `x = 36px`) strictly anchored to the left with uniform spacing.
   - Slint layouts default to top-alignment; specify explicit centering where necessary.
   - Use custom `Field` and `SearchField` from `ui/components/inputs.slint` instead of standard `LineEdit`.
 

@@ -1,16 +1,17 @@
 import { BrowserItem } from "../types.slint";
 import { Icon } from "../components/icon.slint";
 import { CaptionBtn, SettingsTabBtn } from "../components/buttons.slint";
-import { SwitchRow, StepperControl } from "../components/inputs.slint";
+import { SwitchRow, StepperControl, ThemeCard } from "../components/inputs.slint";
+import { Palette } from "../theme.slint";
 // ════════════════════════════════════════════════
 // Settings & Browser Integration Dialog (Modern Minimalist)
 // ════════════════════════════════════════════════
 export component SettingsDialog inherits Window {
-    width: 560px;
-    height: 480px;
+    width: 580px;
+    height: 520px;
     no-frame: true;
     background: transparent;
-    title: "Settings & Browser Integration";
+    title: "Settings & Preferences";
     default-font-family: "Segoe UI Variable Display, Segoe UI, Inter, -apple-system, sans-serif";
 
     in property <[BrowserItem]> browsers;
@@ -20,6 +21,12 @@ export component SettingsDialog inherits Window {
     in-out property <int> max-connections: 8;
     in-out property <float> speed-limit-mbps: 0;
     in-out property <bool> start-at-startup: false;
+    in-out property <float> torrent-down-mbps: 0;
+    in-out property <float> torrent-up-mbps: 0;
+    in-out property <int> torrent-max-peers: 100;
+    in-out property <bool> torrent-dht-enabled: true;
+    in-out property <bool> torrent-pex-enabled: true;
+    in-out property <bool> torrent-auto-trackers: true;
 
     callback install-extension(string);
     callback download-browser(string);
@@ -29,6 +36,13 @@ export component SettingsDialog inherits Window {
     callback set-speed-limit(float);
     callback set-start-at-startup(bool);
     callback open-startup-apps();
+    callback set-torrent-down-limit(float);
+    callback set-torrent-up-limit(float);
+    callback set-torrent-max-peers(int);
+    callback set-torrent-dht-enabled(bool);
+    callback set-torrent-pex-enabled(bool);
+    callback set-torrent-auto-trackers(bool);
+    callback set-theme(int);
     callback closed();
     callback drag-window();
 
@@ -36,9 +50,9 @@ export component SettingsDialog inherits Window {
         width: 100%;
         height: 100%;
         border-radius: 14px;
-        background: #1E1E20;
+        background: Palette.modal-bg;
         border-width: 1px;
-        border-color: #2E2E32;
+        border-color: Palette.border-color;
         clip: true;
 
         VerticalLayout {
@@ -75,7 +89,7 @@ export component SettingsDialog inherits Window {
                             height: 24px;
                             y: (parent.height - self.height) / 2;
                             border-radius: 6px;
-                            background: #0A84FF22;
+                            background: Palette.accent-tint-bg;
 
                             Icon {
                                 source: @image-url("../icons/settings.svg");
@@ -83,7 +97,7 @@ export component SettingsDialog inherits Window {
                                 height: 14px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: #64D2FF;
+                                tint: Palette.accent-light;
                             }
                         }
 
@@ -91,7 +105,7 @@ export component SettingsDialog inherits Window {
                             text: "Settings & Preferences";
                             font-size: 13.5px;
                             font-weight: 700;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             vertical-alignment: center;
                         }
                     }
@@ -113,16 +127,18 @@ export component SettingsDialog inherits Window {
                 Rectangle {
                     height: 36px;
                     border-radius: 8px;
-                    background: #141416;
+                    background: Palette.card-secondary-bg;
 
                     // Springy sliding selection indicator pill - exact button geometry
                     Rectangle {
-                        x: root.active-tab == 0 ? s-tab0.x : (root.active-tab == 1 ? s-tab1.x : s-tab2.x);
+                        x: root.active-tab == 0 ? s-tab0.x : (root.active-tab == 1 ? s-tab1.x : (root.active-tab == 2 ? s-tab2.x : s-tab3.x));
                         y: 2px;
-                        width: root.active-tab == 0 ? s-tab0.width : (root.active-tab == 1 ? s-tab1.width : s-tab2.width);
+                        width: root.active-tab == 0 ? s-tab0.width : (root.active-tab == 1 ? s-tab1.width : (root.active-tab == 2 ? s-tab2.width : s-tab3.width));
                         height: parent.height - 4px;
                         border-radius: 6px;
-                        background: #252528;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
                         animate x { duration: 280ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
                         animate width { duration: 280ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
                     }
@@ -140,7 +156,7 @@ export component SettingsDialog inherits Window {
                         }
 
                         s-tab1 := SettingsTabBtn {
-                            text: "General & Capture";
+                            text: "General";
                             icon-src: @image-url("../icons/zap.svg");
                             active: root.active-tab == 1;
                             horizontal-stretch: 1;
@@ -148,11 +164,19 @@ export component SettingsDialog inherits Window {
                         }
 
                         s-tab2 := SettingsTabBtn {
-                            text: "Queue & Speed";
+                            text: "HTTP Speed";
                             icon-src: @image-url("../icons/cpu.svg");
                             active: root.active-tab == 2;
                             horizontal-stretch: 1;
                             clicked => { root.active-tab = 2; }
+                        }
+
+                        s-tab3 := SettingsTabBtn {
+                            text: "BitTorrent";
+                            icon-src: @image-url("../icons/layers.svg");
+                            active: root.active-tab == 3;
+                            horizontal-stretch: 1;
+                            clicked => { root.active-tab = 3; }
                         }
                     }
                 }
@@ -164,7 +188,9 @@ export component SettingsDialog inherits Window {
                     // Instructions Card
                     Rectangle {
                         border-radius: 8px;
-                        background: #0A84FF12;
+                        background: Palette.accent-tint-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
 
                         HorizontalLayout {
                             padding-left: 12px;
@@ -184,14 +210,14 @@ export component SettingsDialog inherits Window {
                                     height: 14px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #64D2FF;
+                                    tint: Palette.accent-light;
                                 }
                             }
 
                             Text {
                                 text: "1. Open chrome://extensions  •  2. Turn on 'Developer mode' (top right)  •  3. Click 'Load unpacked' and choose the VDM extension folder.";
                                 font-size: 11px;
-                                color: #D1D1D6;
+                                color: Palette.text-secondary;
                                 wrap: word-wrap;
                                 horizontal-stretch: 1;
                                 vertical-alignment: center;
@@ -202,7 +228,9 @@ export component SettingsDialog inherits Window {
                     // Browsers List Container (Clean Minimalist Column Layout)
                     Rectangle {
                         border-radius: 10px;
-                        background: #141416;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
 
                         VerticalLayout {
                             padding: 6px;
@@ -211,7 +239,7 @@ export component SettingsDialog inherits Window {
                             for b in root.browsers: Rectangle {
                                 height: 42px;
                                 border-radius: 7px;
-                                background: b-t.has-hover ? #1D1D21 : #18181B;
+                                background: b-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                                 animate background { duration: 120ms; }
 
                                 b-t := TouchArea {}
@@ -238,7 +266,7 @@ export component SettingsDialog inherits Window {
                                                 height: 16px;
                                                 x: (parent.width - self.width) / 2;
                                                 y: (parent.height - self.height) / 2;
-                                                tint: b.running ? #30D158 : (b.installed ? #0A84FF : #5C5C60);
+                                                tint: b.running ? #30D158 : (b.installed ? Palette.accent : Palette.text-muted);
                                             }
                                         }
 
@@ -246,7 +274,7 @@ export component SettingsDialog inherits Window {
                                             text: b.name;
                                             font-size: 12.5px;
                                             font-weight: 500;
-                                            color: b.installed ? #FFFFFF : #8E8E93;
+                                            color: b.installed ? Palette.text-primary : Palette.text-secondary;
                                             vertical-alignment: center;
                                         }
                                     }
@@ -258,7 +286,7 @@ export component SettingsDialog inherits Window {
                                         y: (parent.height - self.height) / 2;
                                         border-radius: 11px;
                                         background: b.running ? #30D15818 :
-                                                    b.installed ? #0A84FF18 : #242428;
+                                                    b.installed ? Palette.accent-tint-bg : Palette.card-bg;
 
                                         HorizontalLayout {
                                             spacing: 6px;
@@ -270,7 +298,7 @@ export component SettingsDialog inherits Window {
                                                 y: (parent.height - self.height) / 2;
                                                 border-radius: 2.5px;
                                                 background: b.running ? #30D158 :
-                                                            b.installed ? #0A84FF : #68686C;
+                                                            b.installed ? Palette.accent : Palette.text-muted;
                                             }
 
                                             Text {
@@ -279,7 +307,7 @@ export component SettingsDialog inherits Window {
                                                 font-size: 10.5px;
                                                 font-weight: 600;
                                                 color: b.running ? #30D158 :
-                                                       b.installed ? #64D2FF : #8E8E93;
+                                                       b.installed ? Palette.accent-light : Palette.text-secondary;
                                                 vertical-alignment: center;
                                             }
                                         }
@@ -294,8 +322,8 @@ export component SettingsDialog inherits Window {
                                         height: 28px;
                                         y: (parent.height - self.height) / 2;
                                         border-radius: 6px;
-                                        background: inst-t.pressed ? #0055B3 :
-                                                    inst-t.has-hover ? #2394FF : #0A84FF;
+                                        background: inst-t.pressed ? Palette.accent-pressed :
+                                                    inst-t.has-hover ? Palette.accent-hover : Palette.accent;
                                         animate background { duration: 120ms; }
 
                                         inst-t := TouchArea {
@@ -335,8 +363,10 @@ export component SettingsDialog inherits Window {
                                         height: 28px;
                                         y: (parent.height - self.height) / 2;
                                         border-radius: 6px;
-                                        background: get-t.pressed ? #2A2A2E :
-                                                    get-t.has-hover ? #242428 : #1C1C1F;
+                                        background: get-t.pressed ? Palette.hover-bg :
+                                                    get-t.has-hover ? Palette.hover-bg : Palette.card-bg;
+                                        border-width: 1px;
+                                        border-color: Palette.border-subtle;
                                         animate background { duration: 120ms; }
 
                                         get-t := TouchArea {
@@ -357,7 +387,7 @@ export component SettingsDialog inherits Window {
                                                     height: 10px;
                                                     x: (parent.width - self.width) / 2;
                                                     y: (parent.height - self.height) / 2;
-                                                    tint: #8E8E93;
+                                                    tint: Palette.text-secondary;
                                                 }
                                             }
 
@@ -365,7 +395,7 @@ export component SettingsDialog inherits Window {
                                                 text: "Get Browser";
                                                 font-size: 11px;
                                                 font-weight: 500;
-                                                color: get-t.has-hover ? #FFFFFF : #8E8E93;
+                                                color: get-t.has-hover ? Palette.text-primary : Palette.text-secondary;
                                                 vertical-alignment: center;
                                             }
                                         }
@@ -376,18 +406,119 @@ export component SettingsDialog inherits Window {
                     }
                 }
 
-                // ── Tab 1: General & Capture ──
+                // ── Tab 1: General & Appearance ──
                 if root.active-tab == 1: VerticalLayout {
-                    spacing: 12px;
+                    spacing: 10px;
+
+                    // ── Appearance & Theme Card (4 Themes with 5-Color Swatch Preview) ──
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                spacing: 8px;
+
+                                VerticalLayout {
+                                    spacing: 1px;
+
+                                    Text {
+                                        text: "Appearance & Theme";
+                                        font-size: 12.5px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Select a color theme with unified surface palettes and typography";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                ThemeCard {
+                                    horizontal-stretch: 1;
+                                    name: "Dark";
+                                    active: Palette.active-theme == 0;
+                                    c1: #1E1E1E;
+                                    c2: #28282A;
+                                    c3: #2C2C2E;
+                                    c4: #0A84FF;
+                                    c5: #64D2FF;
+                                    clicked => {
+                                        Palette.active-theme = 0;
+                                        root.set-theme(0);
+                                    }
+                                }
+
+                                ThemeCard {
+                                    horizontal-stretch: 1;
+                                    name: "Light";
+                                    active: Palette.active-theme == 1;
+                                    c1: #F2F2F7;
+                                    c2: #FFFFFF;
+                                    c3: #E5E5EA;
+                                    c4: #007AFF;
+                                    c5: #1C1C1E;
+                                    clicked => {
+                                        Palette.active-theme = 1;
+                                        root.set-theme(1);
+                                    }
+                                }
+
+                                ThemeCard {
+                                    horizontal-stretch: 1;
+                                    name: "Dark Purple";
+                                    active: Palette.active-theme == 2;
+                                    c1: #161022;
+                                    c2: #201731;
+                                    c3: #2A1F40;
+                                    c4: #AF52DE;
+                                    c5: #DA8FFF;
+                                    clicked => {
+                                        Palette.active-theme = 2;
+                                        root.set-theme(2);
+                                    }
+                                }
+
+                                ThemeCard {
+                                    horizontal-stretch: 1;
+                                    name: "Ocean Slate";
+                                    active: Palette.active-theme == 3;
+                                    c1: #0B1120;
+                                    c2: #151E32;
+                                    c3: #1E293B;
+                                    c4: #38BDF8;
+                                    c5: #7DD3FC;
+                                    clicked => {
+                                        Palette.active-theme = 3;
+                                        root.set-theme(3);
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Windows Startup Integration Card
                     Rectangle {
                         border-radius: 10px;
-                        background: #141416;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
 
                         VerticalLayout {
                             padding: 10px;
-                            spacing: 10px;
+                            spacing: 8px;
 
                             SwitchRow {
                                 title: "Start VDM on Windows Startup";
@@ -402,7 +533,7 @@ export component SettingsDialog inherits Window {
                             // Sub-card: Taskbar Startup Apps & Task Manager Integration status
                             Rectangle {
                                 border-radius: 8px;
-                                background: #1C1C1F;
+                                background: Palette.card-secondary-bg;
 
                                 HorizontalLayout {
                                     padding-left: 12px;
@@ -422,7 +553,7 @@ export component SettingsDialog inherits Window {
                                             height: 14px;
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
-                                            tint: root.start-at-startup ? #30D158 : #8E8E93;
+                                            tint: root.start-at-startup ? #30D158 : Palette.text-muted;
                                         }
                                     }
 
@@ -431,7 +562,7 @@ export component SettingsDialog inherits Window {
                                             ? "Connected & Enabled in Windows Task Manager & Taskbar Startup Apps."
                                             : "Disabled in Windows Startup. Turn on to launch automatically.";
                                         font-size: 11px;
-                                        color: root.start-at-startup ? #D1D1D6 : #8E8E93;
+                                        color: root.start-at-startup ? Palette.text-primary : Palette.text-secondary;
                                         wrap: word-wrap;
                                         horizontal-stretch: 1;
                                         vertical-alignment: center;
@@ -440,10 +571,10 @@ export component SettingsDialog inherits Window {
                                     Rectangle {
                                         height: 26px;
                                         border-radius: 6px;
-                                        background: startup-btn-touch.pressed ? #2A2A2E :
-                                                    startup-btn-touch.has-hover ? #242428 : #18181B;
+                                        background: startup-btn-touch.pressed ? Palette.hover-bg :
+                                                    startup-btn-touch.has-hover ? Palette.hover-bg : Palette.card-bg;
                                         border-width: 1px;
-                                        border-color: #2E2E32;
+                                        border-color: Palette.border-subtle;
                                         animate background { duration: 120ms; }
 
                                         startup-btn-touch := TouchArea {
@@ -466,7 +597,7 @@ export component SettingsDialog inherits Window {
                                                     height: 11px;
                                                     x: (parent.width - self.width) / 2;
                                                     y: (parent.height - self.height) / 2;
-                                                    tint: #A1A1A6;
+                                                    tint: Palette.text-secondary;
                                                 }
                                             }
 
@@ -474,7 +605,7 @@ export component SettingsDialog inherits Window {
                                                 text: "Startup Apps";
                                                 font-size: 10.5px;
                                                 font-weight: 600;
-                                                color: startup-btn-touch.has-hover ? #FFFFFF : #C7C7CC;
+                                                color: startup-btn-touch.has-hover ? Palette.text-primary : Palette.text-secondary;
                                                 vertical-alignment: center;
                                             }
                                         }
@@ -486,40 +617,25 @@ export component SettingsDialog inherits Window {
 
                     Rectangle {
                         border-radius: 10px;
-                        background: #141416;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
 
                         VerticalLayout {
                             padding: 10px;
                             spacing: 4px;
 
                             Text {
-                                text: "Browser downloads are captured by the installed extension. Use Add URL to paste a link from the clipboard.";
-                                font-size: 11px;
-                                color: #8E8E93;
-                                wrap: word-wrap;
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        border-radius: 10px;
-                        background: #141416;
-
-                        VerticalLayout {
-                            padding: 14px;
-                            spacing: 6px;
-
-                            Text {
                                 text: "Automatic Category Routing";
-                                font-size: 12.5px;
+                                font-size: 12px;
                                 font-weight: 600;
-                                color: #FFFFFF;
+                                color: Palette.text-primary;
                             }
 
                             Text {
                                 text: "Files are automatically organized into standard folders based on extension (Compressed, Programs, Video, Music, Documents, and Pictures).";
-                                font-size: 11px;
-                                color: #8E8E93;
+                                font-size: 10.5px;
+                                color: Palette.text-secondary;
                                 wrap: word-wrap;
                             }
                         }
@@ -532,7 +648,9 @@ export component SettingsDialog inherits Window {
 
                     Rectangle {
                         border-radius: 10px;
-                        background: #141416;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
 
                         VerticalLayout {
                             padding: 14px;
@@ -551,13 +669,13 @@ export component SettingsDialog inherits Window {
                                         text: "Max Concurrent Downloads";
                                         font-size: 12.5px;
                                         font-weight: 600;
-                                        color: #FFFFFF;
+                                        color: Palette.text-primary;
                                     }
 
                                     Text {
                                         text: "Active downloads allowed simultaneously (" + root.max-active + " active)";
                                         font-size: 10.5px;
-                                        color: #8E8E93;
+                                        color: Palette.text-secondary;
                                     }
                                 }
 
@@ -602,13 +720,13 @@ export component SettingsDialog inherits Window {
                                         text: "Threads per Download";
                                         font-size: 12.5px;
                                         font-weight: 600;
-                                        color: #FFFFFF;
+                                        color: Palette.text-primary;
                                     }
 
                                     Text {
                                         text: "Multi-connection acceleration parts (" + root.max-connections + " chunks)";
                                         font-size: 10.5px;
-                                        color: #8E8E93;
+                                        color: Palette.text-secondary;
                                     }
                                 }
 
@@ -653,13 +771,13 @@ export component SettingsDialog inherits Window {
                                         text: "Global Speed Limit";
                                         font-size: 12.5px;
                                         font-weight: 600;
-                                        color: #FFFFFF;
+                                        color: Palette.text-primary;
                                     }
 
                                     Text {
                                         text: root.speed-limit-mbps <= 0.01 ? "Unlimited bandwidth" : ("Capped at " + root.speed-limit-mbps + " MB/s");
                                         font-size: 10.5px;
-                                        color: #8E8E93;
+                                        color: Palette.text-secondary;
                                     }
                                 }
 
@@ -711,9 +829,11 @@ export component SettingsDialog inherits Window {
                                         width: 54px;
                                         height: 32px;
                                         border-radius: 7px;
-                                        background: root.speed-limit-mbps <= 0.01 ? #0A84FF :
-                                                    unlim-t.pressed ? #2A2A2E :
-                                                    unlim-t.has-hover ? #222226 : #18181B;
+                                        background: root.speed-limit-mbps <= 0.01 ? Palette.accent :
+                                                    unlim-t.pressed ? Palette.hover-bg :
+                                                    unlim-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                                        border-width: 1px;
+                                        border-color: root.speed-limit-mbps <= 0.01 ? Palette.accent : Palette.border-subtle;
                                         animate background { duration: 120ms; }
 
                                         unlim-t := TouchArea {
@@ -727,9 +847,223 @@ export component SettingsDialog inherits Window {
                                             text: "Max";
                                             font-size: 11.5px;
                                             font-weight: 600;
-                                            color: root.speed-limit-mbps <= 0.01 ? #FFFFFF : (unlim-t.has-hover ? #FFFFFF : #8E8E93);
+                                            color: root.speed-limit-mbps <= 0.01 ? #FFFFFF : (unlim-t.has-hover ? Palette.text-primary : Palette.text-secondary);
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Tab 3: BitTorrent & Magnet Acceleration ──
+                if root.active-tab == 3: VerticalLayout {
+                    spacing: 12px;
+
+                    // Torrent Speed Limits Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 14px;
+
+                            Text {
+                                text: "Bandwidth & Transfer Limits";
+                                font-size: 12.5px;
+                                font-weight: 700;
+                                color: Palette.text-primary;
+                            }
+
+                            // Max Download Speed
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Max Torrent Download Speed";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Maximum incoming bandwidth for torrent swarms";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+
+                                StepperControl {
+                                    width: 150px;
+                                    box-width: 86px;
+                                    text-val: root.torrent-down-mbps <= 0.01 ? "Unlimited" : (root.torrent-down-mbps + " MB/s");
+                                    can-decrease: root.torrent-down-mbps > 0.5;
+                                    can-increase: root.torrent-down-mbps < 500.0;
+                                    decrease => {
+                                        let next-val = root.torrent-down-mbps <= 1.0 ? 0.0 : root.torrent-down-mbps - 1.0;
+                                        root.torrent-down-mbps = next-val;
+                                        root.set-torrent-down-limit(next-val);
+                                    }
+                                    increase => {
+                                        let next-val = root.torrent-down-mbps < 0.01 ? 1.0 : root.torrent-down-mbps + 1.0;
+                                        root.torrent-down-mbps = next-val;
+                                        root.set-torrent-down-limit(next-val);
+                                    }
+                                    accepted(s) => {
+                                        let v = s.to-float();
+                                        root.torrent-down-mbps = Math.max(0.0, v);
+                                        root.set-torrent-down-limit(root.torrent-down-mbps);
+                                    }
+                                }
+                            }
+
+                            // Max Upload Speed
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Max Torrent Upload / Seeding Speed";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Prevent seeding from choking your local internet connection";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+
+                                StepperControl {
+                                    width: 150px;
+                                    box-width: 86px;
+                                    text-val: root.torrent-up-mbps <= 0.01 ? "Unlimited" : (root.torrent-up-mbps + " MB/s");
+                                    can-decrease: root.torrent-up-mbps > 0.5;
+                                    can-increase: root.torrent-up-mbps < 200.0;
+                                    decrease => {
+                                        let next-val = root.torrent-up-mbps <= 1.0 ? 0.0 : root.torrent-up-mbps - 1.0;
+                                        root.torrent-up-mbps = next-val;
+                                        root.set-torrent-up-limit(next-val);
+                                    }
+                                    increase => {
+                                        let next-val = root.torrent-up-mbps < 0.01 ? 1.0 : root.torrent-up-mbps + 1.0;
+                                        root.torrent-up-mbps = next-val;
+                                        root.set-torrent-up-limit(next-val);
+                                    }
+                                    accepted(s) => {
+                                        let v = s.to-float();
+                                        root.torrent-up-mbps = Math.max(0.0, v);
+                                        root.set-torrent-up-limit(root.torrent-up-mbps);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Swarm & Discovery Acceleration Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            SwitchRow {
+                                title: "Distributed Hash Table (DHT)";
+                                subtitle: "Find peers quickly without relying solely on centralized trackers";
+                                checked: root.torrent-dht-enabled;
+                                toggled(val) => {
+                                    root.torrent-dht-enabled = val;
+                                    root.set-torrent-dht-enabled(val);
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Peer Exchange (PEX)";
+                                subtitle: "Exchange peer lists directly with connected swarm members";
+                                checked: root.torrent-pex-enabled;
+                                toggled(val) => {
+                                    root.torrent-pex-enabled = val;
+                                    root.set-torrent-pex-enabled(val);
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Auto Public Tracker Acceleration";
+                                subtitle: "Automatically inject high-tier public trackers for blazing-fast peer discovery";
+                                checked: root.torrent-auto-trackers;
+                                toggled(val) => {
+                                    root.torrent-auto-trackers = val;
+                                    root.set-torrent-auto-trackers(val);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Max Peers per Torrent";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Target peer swarm connections (" + root.torrent-max-peers + " peers)";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+
+                                StepperControl {
+                                    width: 140px;
+                                    box-width: 76px;
+                                    text-val: root.torrent-max-peers + "";
+                                    can-decrease: root.torrent-max-peers > 20;
+                                    can-increase: root.torrent-max-peers < 500;
+                                    decrease => {
+                                        if root.torrent-max-peers > 20 {
+                                            root.torrent-max-peers -= 20;
+                                            root.set-torrent-max-peers(root.torrent-max-peers);
+                                        }
+                                    }
+                                    increase => {
+                                        if root.torrent-max-peers < 500 {
+                                            root.torrent-max-peers += 20;
+                                            root.set-torrent-max-peers(root.torrent-max-peers);
+                                        }
+                                    }
+                                    accepted(s) => {
+                                        let v = Math.round(s.to-float());
+                                        if v >= 10 {
+                                            root.torrent-max-peers = Math.min(500, Math.max(10, v));
+                                            root.set-torrent-max-peers(root.torrent-max-peers);
                                         }
                                     }
                                 }
@@ -752,8 +1086,10 @@ export component SettingsDialog inherits Window {
                         if root.active-tab == 0: Rectangle {
                             height: 32px;
                             border-radius: 7px;
-                            background: fld-touch.pressed ? #2A2A2E :
-                                        fld-touch.has-hover ? #222226 : #18181B;
+                            background: fld-touch.pressed ? Palette.hover-bg :
+                                        fld-touch.has-hover ? Palette.hover-bg : Palette.card-bg;
+                            border-width: 1px;
+                            border-color: Palette.border-subtle;
                             animate background { duration: 120ms; }
 
                             fld-touch := TouchArea {
@@ -776,7 +1112,7 @@ export component SettingsDialog inherits Window {
                                         height: 13px;
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        tint: #98989D;
+                                        tint: Palette.text-secondary;
                                     }
                                 }
 
@@ -784,7 +1120,7 @@ export component SettingsDialog inherits Window {
                                     text: "Open Extension Folder";
                                     font-size: 11.5px;
                                     font-weight: 500;
-                                    color: #D1D1D6;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }
@@ -796,10 +1132,10 @@ export component SettingsDialog inherits Window {
                         width: 86px;
                         height: 32px;
                         border-radius: 7px;
-                        background: done-touch.pressed ? #0055B3 :
-                                    done-touch.has-hover ? #2394FF : #0A84FF;
+                        background: done-touch.pressed ? Palette.accent-pressed :
+                                    done-touch.has-hover ? Palette.accent-hover : Palette.accent;
                         drop-shadow-blur: done-touch.has-hover ? 10px : 3px;
-                        drop-shadow-color: #0A84FF55;
+                        drop-shadow-color: Palette.accent-tint-bg;
                         animate background { duration: 120ms; }
 
                         done-touch := TouchArea {

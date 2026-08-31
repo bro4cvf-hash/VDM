@@ -1,4 +1,5 @@
 import { Icon } from "icon.slint";
+import { Palette } from "../theme.slint";
 
 // ── Interactive Table Header Column with Sorting & Drag-Resize ──
 export component HeaderCol inherits Rectangle {
@@ -34,7 +35,7 @@ export component HeaderCol inherits Rectangle {
                 font-size: 11px;
                 font-weight: 600;
                 letter-spacing: 0.6px;
-                color: root.active-sort == root.col-id ? #64D2FF : h-touch.has-hover ? #ffffff : #7C7C80;
+                color: root.active-sort == root.col-id ? Palette.accent-light : h-touch.has-hover ? Palette.text-primary : Palette.text-tertiary;
                 animate color { duration: 120ms; }
                 vertical-alignment: center;
                 overflow: elide;
@@ -43,7 +44,7 @@ export component HeaderCol inherits Rectangle {
             if root.active-sort == root.col-id: Text {
                 text: root.sort-asc ? "▲" : "▼";
                 font-size: 8.5px;
-                color: #64D2FF;
+                color: Palette.accent-light;
                 vertical-alignment: center;
             }
         }
@@ -71,7 +72,7 @@ export component HeaderCol inherits Rectangle {
             y: 8px;
             width: 1px;
             height: 14px;
-            background: r-touch.has-hover || r-touch.pressed ? #0A84FF : #333336;
+            background: r-touch.has-hover || r-touch.pressed ? Palette.accent : Palette.border-color;
             animate background { duration: 100ms; }
         }
 
@@ -95,7 +96,7 @@ export component ColMenuItem inherits Rectangle {
 
     height: 28px;
     border-radius: 6px;
-    background: c-touch.has-hover && !locked ? #28282C : transparent;
+    background: c-touch.has-hover && !locked ? Palette.hover-bg : transparent;
     animate background { duration: 100ms; }
 
     HorizontalLayout {
@@ -109,9 +110,9 @@ export component ColMenuItem inherits Rectangle {
             height: 14px;
             y: (parent.height - self.height) / 2;
             border-radius: 3px;
-            background: root.checked ? #0A84FF : #28282C;
+            background: root.checked ? Palette.accent : Palette.input-bg;
             border-width: 1px;
-            border-color: root.checked ? #0A84FF : #48484C;
+            border-color: root.checked ? Palette.accent : Palette.border-color;
             animate background { duration: 120ms; }
 
             if root.checked: Icon {
@@ -128,7 +129,7 @@ export component ColMenuItem inherits Rectangle {
             text: root.text;
             font-size: 11.5px;
             font-weight: root.checked ? 500 : 400;
-            color: root.locked ? #7C7C80 : (root.checked ? #f5f5f7 : #8E8E93);
+            color: root.locked ? Palette.text-tertiary : (root.checked ? Palette.text-primary : Palette.text-secondary);
             horizontal-stretch: 1;
             vertical-alignment: center;
         }
@@ -136,7 +137,7 @@ export component ColMenuItem inherits Rectangle {
         if root.locked: Text {
             text: "Fixed";
             font-size: 9.5px;
-            color: #5C5C60;
+            color: Palette.text-muted;
             vertical-alignment: center;
         }
     }
@@ -154,13 +155,13 @@ export component SideItem inherits Rectangle {
     in property <length> icon-nudge: 0px;
     in property <int> count: 0;
     in property <bool> is-active: false;
-    in property <color> tint: #98989D;
+    in property <color> tint: Palette.text-secondary;
     callback clicked();
 
     height: 32px;
     border-radius: 6px;
     // never cover the sliding accent indicator
-    background: is-active ? transparent : touch.has-hover ? #232325 : transparent;
+    background: is-active ? transparent : touch.has-hover ? Palette.hover-bg : transparent;
     animate background { duration: 150ms; easing: ease-out; }
 
     HorizontalLayout {
@@ -185,7 +186,7 @@ export component SideItem inherits Rectangle {
             text: root.label;
             font-size: 13px;
             font-weight: is-active ? 600 : 400;
-            color: is-active ? #ffffff : touch.has-hover ? #e5e5ea : #c7c7cc;
+            color: is-active ? #ffffff : touch.has-hover ? Palette.text-primary : Palette.text-secondary;
             animate color { duration: 150ms; }
             horizontal-stretch: 1;
             vertical-alignment: center;
@@ -196,7 +197,7 @@ export component SideItem inherits Rectangle {
             text: root.count;
             font-size: 11px;
             font-weight: 600;
-            color: is-active ? #ffffff : #7C7C80;
+            color: is-active ? #ffffff : Palette.text-tertiary;
             vertical-alignment: center;
         }
     }
@@ -211,5 +212,5 @@ export component SectionHeader inherits Text {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.8px;
-    color: #7C7C80;
+    color: Palette.text-tertiary;
 }

@@ -1,5 +1,11 @@
 fn main() {
-    slint_build::compile("ui/app-window.slint").expect("slint build failed");
+    let builder = std::thread::Builder::new().stack_size(8 * 1024 * 1024);
+    let handler = builder
+        .spawn(|| {
+            slint_build::compile("ui/app-window.slint").expect("slint build failed");
+        })
+        .expect("spawn build thread");
+    handler.join().expect("slint build thread failed");
 
     // brand icon + metadata for the exe (taskbar, pinned shortcuts, explorer)
     #[cfg(windows)]

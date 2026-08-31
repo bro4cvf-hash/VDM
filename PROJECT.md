@@ -42,6 +42,7 @@ g:\AI\VDM/
 │   │   ├── probe.rs                       # Multi-probe engine: HEAD / Range GET probing & yt-dlp metadata extraction
 │   │   ├── ytdl.rs                        # yt-dlp wrapper: Format string extraction, audio/video stream muxing via ffmpeg
 │   │   ├── rate_limiter.rs                # Token-bucket bandwidth limiter with burst headroom calculation
+│   │   ├── torrent.rs                     # High-speed BitTorrent engine (librqbit): DHT, PEX, public trackers, swarm stats
 │   │   ├── server.rs                      # Loopback HTTP server on 127.0.0.1:9191 (extension & single-instance IPC)
 │   │   ├── browser.rs                     # Registry scanner for Chrome / Edge / Brave & extension installer
 │   │   ├── startup.rs                     # Windows Startup integration (HKCU Run & StartupApproved sync)
@@ -67,19 +68,21 @@ g:\AI\VDM/
 │   │   └── context-menu.slint             # Apple HIG right-click context menu and submenus
 │   ├── dialogs/                           # Discrete modal windows and overlays
 │   │   ├── download-info-dialog.slint     # Initial download confirmation, category, path selector
+│   │   ├── torrent-file-select-dialog.slint # BitTorrent file picker dialog with individual checkboxes & size calculator
 │   │   ├── download-progress-dialog.slint # Active download window with per-chunk visual progress bar
 │   │   ├── download-mini-pill.slint       # Compact floating progress pill overlay
 │   │   ├── complete-dialog.slint          # Download finished prompt (Open, Open Folder, shutdown PC)
 │   │   ├── duplicate-dialog.slint         # Existing file / duplicate URL conflict resolver
 │   │   ├── renew-dialog.slint             # Expired / broken link recovery dialog
 │   │   ├── settings-dialog.slint          # Configuration (speed limits, connections, categories, browsers)
+│   │   ├── shutdown-dialog.slint          # Scheduled system shutdown countdown dialog with cancel abort
 │   │   └── tray-menu.slint                # System tray context menu
 │   └── icons/                             # 26+ custom stroke SVG icons
 │
 ├── extension/                             # Manifest V3 browser companion extension
 │   ├── manifest.json
 │   ├── background.js                      # Stream interceptor & loopback forwarder
-│   └── content.js                         # DOM media detector & context menu integration
+│   └── content.js                         # DOM media detector, magnet link interceptor & context menu integration
 │
 ├── scripts/
 │   ├── build-installer.ps1                # Inno Setup compilation script
@@ -108,8 +111,9 @@ Tasks traverse the following explicit lifecycle states:
    * Each chunk corresponds to a `Cell` tracking `start`, `end`, `done`, and instantaneous `speed`.
    * Chunks stream data directly to their sparse disk offset using `tokio::fs::File` with `seek(SeekFrom::Start(offset))`.
 3. **Dynamic Work-Stealing Algorithm**:
-   * If a fast worker completes its byte range while other workers are still downloading large ranges, the idle worker identifies the chunk with the largest remaining byte delta.
-   * It splits that chunk's remaining range in half, claims the second half, and spawns a new sub-connection to maximize bandwidth utilization.
+    * If a fast worker completes its byte range while other workers are still downloading large ranges, the idle worker identifies the chunk with the largest remaining byte delta.
+    * It splits that chunk's remaining range in half, claims the second half, and spawns a new sub-connection to maximize bandwidth utilization.
+    * Adaptive splitting is capped at 128 cells; without this ceiling, large downloads can grow toward one cell per 1 MiB and amplify SQLite rewrites, snapshots, and UI work until the host becomes unresponsive.
 4. **State Persistence**:
    * Chunk progress is periodically committed to SQLite (`storage/database.rs`).
    * On application restart or crash recovery, VDM inspects `chunks` rows to resume downloading from the exact byte position.
@@ -173,17 +177,26 @@ CREATE TABLE IF NOT EXISTS kv (
 
 ## 5. Slint UI Architecture & Apple HIG Design System
 
-### A. Surface Palette & Layering (macOS Sonoma Dark Glass)
-* **Base Canvas**: `#1E1E1E` (the flat, non-distracting window foundation)
-* **Elevated Surface / Table / Cards**: `#28282A`
-* **Input Controls / Search Bar**: `#2C2C2E`
-* **Hover State**: `#232325` / `#333336`
-* **Primary Accent**: `#0A84FF` (macOS Blue)
-* **Secondary Accent**: `#64D2FF` (macOS Cyan)
-* **Success Indicator**: `#30D158` (macOS Green)
-* **Destructive / Close**: `#FF453A` (macOS Red)
-* **Warning**: `#FF9F0A` (macOS Orange)
-* **Separators / Borders**: Translucent `#333336` or `#3A3A3C` (never stark or contrasting)
+### A. Reactive Multi-Theme System (`ui/theme.slint` & `Palette` Global)
+VDM features a unified, GPU-accelerated 4-theme palette engine powered by Slint's `export global Palette` reactive dependency graph ($O(1)$ switching time, zero layout recalculations):
+* **0: Dark (Default macOS Sonoma)**:
+  * Canvas: `#1E1E1E` | Elevated / Surface: `#28282A` | Cards / Header: `#2C2C2E`
+  * Accent: `#0A84FF` | Accent Glow: `#0A84FF20` | Light Accent: `#64D2FF`
+  * Text: `#F5F5F7` (Primary) | `#98989D` (Secondary) | `#636366` (Tertiary)
+* **1: Light (Apple Clean White)**:
+  * Canvas: `#F2F2F7` | Elevated / Surface: `#FFFFFF` | Cards / Header: `#E5E5EA`
+  * Accent: `#007AFF` | Accent Glow: `#007AFF18` | Light Accent: `#007AFF`
+  * Text: `#1C1C1E` (Primary) | `#48484A` (Secondary) | `#8E8E93` (Tertiary)
+* **2: Dark Purple (Midnight Violet)**:
+  * Canvas: `#161022` | Elevated / Surface: `#201731` | Cards / Header: `#2B1F42`
+  * Accent: `#AF52DE` | Accent Glow: `#AF52DE25` | Light Accent: `#D070FF`
+  * Text: `#F8FAFC` (Primary) | `#B8B2C8` (Secondary) | `#7E7790` (Tertiary)
+* **3: Ocean Slate (Nord / Deep Marine Blue)**:
+  * Canvas: `#0B1120` | Elevated / Surface: `#151E32` | Cards / Header: `#1E293B`
+  * Accent: `#38BDF8` | Accent Glow: `#38BDF820` | Light Accent: `#7DD3FC`
+  * Text: `#F8FAFC` (Primary) | `#94A3B8` (Secondary) | `#64748B` (Tertiary)
+
+**Theme Picker**: Settings dialog (General tab) features an interactive 4-box grid of `ThemeCard` components, each rendering 5 mini color swatches (`c1..c5`), theme label, active glowing border, and checkmark. Active theme index (`0..3`) is persisted across sessions in SQLite `kv` table as `"theme"`.
 
 ### B. Modular Slint Component Architecture (Anti-Monolith Standard)
 * **Never Dump Code into Monolithic Files**: Do not continuously append UI panels, dialogs, or complex controls into `main-window.slint`.
@@ -226,7 +239,9 @@ Every list, sidebar row, table column, dialog row, and toolbar button must align
 ### E. Slint Layout Conventions & Gotchas
 1. **Top-Alignment Default**: Slint `VerticalLayout` and `HorizontalLayout` default to `start` alignment; explicit `alignment: center` must be provided when vertical centering is required.
 2. **Input Fields**: Standard `LineEdit` has rigid sizing; use custom `Field` and `SearchField` from `ui/components/inputs.slint`.
-3. **Z-Ordering**: Modals, column menus (`ColMenuItem`), and dropdowns must be declared at the bottom of the Slint file to overlay table components.
+3. **Keyboard Focus & FocusScope**: Ensure `main-focus := FocusScope` initializes focus with `self.focus()` and is re-focused via `main-focus.focus()` on row clicks, backdrop clicks, sidebar navigation, and modal dismissals.
+4. **Z-Ordering**: Modals, column menus (`ColMenuItem`), and dropdowns must be declared at the bottom of the Slint file to overlay table components.
+5. **Build Script Stack Size (`build.rs`)**: Run `slint_build::compile` inside a dedicated thread with `stack_size(8 * 1024 * 1024)` to prevent `0xc00000fd` stack overflows on Windows.
 
 ---
 

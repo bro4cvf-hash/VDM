@@ -1,4 +1,5 @@
 import { Icon } from "icon.slint";
+import { Palette } from "../theme.slint";
 
 // ── Styled text input (replaces std LineEdit chrome) ──
 export component Field inherits Rectangle {
@@ -16,11 +17,11 @@ export component Field inherits Rectangle {
     height: h;
     border-radius: radius;
     clip: true;
-    background: ti.has-focus ? #232325 : #18181A;
+    background: ti.has-focus ? Palette.input-focus-bg : Palette.input-bg;
     border-width: 1px;
-    border-color: ti.has-focus ? #0A84FF : #3A3A3C;
+    border-color: ti.has-focus ? Palette.accent : Palette.border-color;
     drop-shadow-blur: ti.has-focus ? 8px : 0px;
-    drop-shadow-color: #0A84FF44;
+    drop-shadow-color: Palette.accent-tint-bg;
     animate border-color { duration: 160ms; }
     animate background { duration: 160ms; }
     animate drop-shadow-blur { duration: 160ms; }
@@ -33,9 +34,9 @@ export component Field inherits Rectangle {
         horizontal-alignment: root.text-center ? center : left;
         vertical-alignment: center;
         single-line: true;
-        color: #f5f5f7;
+        color: Palette.text-primary;
         font-size: root.font-size;
-        selection-background-color: #0A84FF;
+        selection-background-color: Palette.accent;
         selection-foreground-color: #ffffff;
         accepted => { root.accepted(); }
         edited => { root.edited(ti.text); }
@@ -47,7 +48,7 @@ export component Field inherits Rectangle {
         height: parent.height;
         text: root.placeholder;
         font-size: root.font-size;
-        color: #7C7C80;
+        color: Palette.text-tertiary;
         horizontal-alignment: root.text-center ? center : left;
         vertical-alignment: center;
     }
@@ -63,11 +64,11 @@ export component SearchField inherits Rectangle {
     height: 34px;
     border-radius: 8px;
     clip: true;
-    background: ti.has-focus ? #232325 : #2C2C2E;
+    background: ti.has-focus ? Palette.input-focus-bg : Palette.input-bg;
     border-width: 1px;
-    border-color: ti.has-focus ? #0A84FF : #3A3A3C;
+    border-color: ti.has-focus ? Palette.accent : Palette.border-color;
     drop-shadow-blur: ti.has-focus ? 10px : 0px;
-    drop-shadow-color: #0A84FF33;
+    drop-shadow-color: Palette.accent-tint-bg;
     animate border-color { duration: 160ms; }
     animate background { duration: 160ms; }
 
@@ -85,12 +86,14 @@ export component SearchField inherits Rectangle {
             height: well.has-hover || ti.has-focus ? 16px : 14px;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            tint: ti.has-focus ? #64D2FF : #7C7C80;
+            tint: ti.has-focus ? Palette.accent-light : Palette.text-secondary;
             animate width { duration: 200ms; easing: cubic-bezier(0.3, 1.4, 0.4, 1); }
             animate height { duration: 200ms; easing: cubic-bezier(0.3, 1.4, 0.4, 1); }
             animate tint { duration: 160ms; }
         }
     }
+
+    callback escape-pressed();
 
     ti := TextInput {
         x: 32px;
@@ -99,12 +102,26 @@ export component SearchField inherits Rectangle {
         height: 100%;
         vertical-alignment: center;
         single-line: true;
-        color: #f5f5f7;
+        color: Palette.text-primary;
         font-size: 13px;
-        selection-background-color: #0A84FF;
+        selection-background-color: Palette.accent;
         selection-foreground-color: #ffffff;
         edited => { root.edited(ti.text); }
-        accepted => { ti.clear-focus(); }
+        accepted => { ti.clear-focus(); root.escape-pressed(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                ti.text = "";
+                root.edited("");
+                ti.clear-focus();
+                root.escape-pressed();
+                return accept;
+            } else if event.text == Key.DownArrow {
+                ti.clear-focus();
+                root.escape-pressed();
+                return accept;
+            }
+            return reject;
+        }
     }
 
     if ti.text == "": Text {
@@ -112,7 +129,7 @@ export component SearchField inherits Rectangle {
         height: parent.height;
         text: "Search";
         font-size: 13px;
-        color: #7C7C80;
+        color: Palette.text-tertiary;
         vertical-alignment: center;
     }
 }
@@ -126,7 +143,7 @@ export component SwitchRow inherits Rectangle {
 
     height: 44px;
     border-radius: 8px;
-    background: row-touch.has-hover ? #242426 : transparent;
+    background: row-touch.has-hover ? Palette.hover-bg : transparent;
     animate background { duration: 120ms; }
 
     row-touch := TouchArea {
@@ -150,14 +167,14 @@ export component SwitchRow inherits Rectangle {
                 text: root.title;
                 font-size: 12.5px;
                 font-weight: 500;
-                color: #f5f5f7;
+                color: Palette.text-primary;
                 horizontal-alignment: left;
                 vertical-alignment: center;
             }
             if root.subtitle != "": Text {
                 text: root.subtitle;
                 font-size: 10.5px;
-                color: #8E8E93;
+                color: Palette.text-secondary;
                 horizontal-alignment: left;
                 vertical-alignment: center;
             }
@@ -169,7 +186,7 @@ export component SwitchRow inherits Rectangle {
             height: 20px;
             y: (parent.height - self.height) / 2;
             border-radius: 10px;
-            background: root.checked ? #0A84FF : #3A3A3C;
+            background: root.checked ? Palette.accent : Palette.border-color;
             animate background { duration: 180ms; easing: ease-out; }
 
             // Knob
@@ -181,7 +198,7 @@ export component SwitchRow inherits Rectangle {
                 border-radius: 8px;
                 background: #ffffff;
                 drop-shadow-blur: 4px;
-                drop-shadow-color: #00000055;
+                drop-shadow-color: #00000044;
                 animate x { duration: 180ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
             }
         }
@@ -200,7 +217,7 @@ export component StepperControl inherits Rectangle {
 
     height: 32px;
     border-radius: 7px;
-    background: #18181B;
+    background: Palette.card-secondary-bg;
 
     HorizontalLayout {
         padding-left: 3px;
@@ -215,8 +232,8 @@ export component StepperControl inherits Rectangle {
             y: (parent.height - self.height) / 2;
             border-radius: 5px;
             background: !root.can-decrease ? transparent :
-                        minus-t.pressed ? #2C2C30 :
-                        minus-t.has-hover ? #242428 : #1E1E22;
+                        minus-t.pressed ? Palette.hover-bg :
+                        minus-t.has-hover ? Palette.hover-bg : Palette.card-bg;
             animate background { duration: 100ms; }
 
             minus-t := TouchArea {
@@ -228,8 +245,8 @@ export component StepperControl inherits Rectangle {
                 text: "−";
                 font-size: 15px;
                 font-weight: 700;
-                color: !root.can-decrease ? #48484A :
-                       minus-t.has-hover ? #FFFFFF : #C7C7CC;
+                color: !root.can-decrease ? Palette.text-muted :
+                       minus-t.has-hover ? Palette.text-primary : Palette.text-secondary;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2 - 1px;
             }
@@ -241,7 +258,9 @@ export component StepperControl inherits Rectangle {
             height: 26px;
             y: (parent.height - self.height) / 2;
             border-radius: 5px;
-            background: val-in.has-focus ? #242428 : #131315;
+            background: val-in.has-focus ? Palette.input-focus-bg : Palette.input-bg;
+            border-width: 1px;
+            border-color: val-in.has-focus ? Palette.accent : Palette.border-subtle;
             clip: true;
             animate background { duration: 120ms; }
 
@@ -251,11 +270,11 @@ export component StepperControl inherits Rectangle {
                 text <=> root.text-val;
                 font-size: 11.5px;
                 font-weight: 600;
-                color: #FFFFFF;
+                color: Palette.text-primary;
                 horizontal-alignment: center;
                 vertical-alignment: center;
                 single-line: true;
-                selection-background-color: #0A84FF;
+                selection-background-color: Palette.accent;
                 selection-foreground-color: #ffffff;
                 accepted => { root.accepted(self.text); }
                 edited => { root.edited(self.text); }
@@ -269,8 +288,8 @@ export component StepperControl inherits Rectangle {
             y: (parent.height - self.height) / 2;
             border-radius: 5px;
             background: !root.can-increase ? transparent :
-                        plus-t.pressed ? #2C2C30 :
-                        plus-t.has-hover ? #242428 : #1E1E22;
+                        plus-t.pressed ? Palette.hover-bg :
+                        plus-t.has-hover ? Palette.hover-bg : Palette.card-bg;
             animate background { duration: 100ms; }
 
             plus-t := TouchArea {
@@ -282,10 +301,123 @@ export component StepperControl inherits Rectangle {
                 text: "+";
                 font-size: 15px;
                 font-weight: 700;
-                color: !root.can-increase ? #48484A :
-                       plus-t.has-hover ? #FFFFFF : #C7C7CC;
+                color: !root.can-increase ? Palette.text-muted :
+                       plus-t.has-hover ? Palette.text-primary : Palette.text-secondary;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
+            }
+        }
+    }
+}
+
+// ── Theme Selection Card with 5-Color Swatch Preview ──
+export component ThemeCard inherits Rectangle {
+    in property <string> name: "";
+    in property <bool> active: false;
+    in property <color> c1; // Base bg
+    in property <color> c2; // Card / surface bg
+    in property <color> c3; // Input / subtle bg
+    in property <color> c4; // Primary accent
+    in property <color> c5; // Text / highlight
+    callback clicked();
+
+    height: 72px;
+    border-radius: 8px;
+    background: root.active ? Palette.card-bg : (touch.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+    border-width: root.active ? 2px : 1px;
+    border-color: root.active ? Palette.accent : (touch.has-hover ? Palette.border-color : Palette.border-subtle);
+    drop-shadow-blur: root.active ? 8px : 0px;
+    drop-shadow-color: Palette.accent-tint-bg;
+    animate background { duration: 120ms; }
+    animate border-color { duration: 120ms; }
+    animate drop-shadow-blur { duration: 120ms; }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        spacing: 8px;
+        alignment: space-between;
+
+        // Top: 5 Palette Swatch Circles
+        HorizontalLayout {
+            spacing: 5px;
+            alignment: start;
+
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.c1;
+                border-width: 1px;
+                border-color: #0000002b;
+            }
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.c2;
+                border-width: 1px;
+                border-color: #0000002b;
+            }
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.c3;
+                border-width: 1px;
+                border-color: #0000002b;
+            }
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.c4;
+                border-width: 1px;
+                border-color: #0000002b;
+            }
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.c5;
+                border-width: 1px;
+                border-color: #0000002b;
+            }
+        }
+
+        // Bottom row: Theme label + Active Checkmark Badge
+        HorizontalLayout {
+            alignment: space-between;
+            spacing: 4px;
+
+            Text {
+                text: root.name;
+                font-size: 11.5px;
+                font-weight: root.active ? 700 : 500;
+                color: root.active ? Palette.text-primary : Palette.text-secondary;
+                vertical-alignment: center;
+            }
+
+            if root.active: Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: Palette.accent;
+
+                Icon {
+                    source: @image-url("../icons/check.svg");
+                    width: 8px;
+                    height: 8px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    tint: #FFFFFF;
+                }
             }
         }
     }

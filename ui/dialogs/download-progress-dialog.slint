@@ -3,6 +3,7 @@ import { ChunkInfo } from "../types.slint";
 import { Icon } from "../components/icon.slint";
 import { CaptionBtn, SettingsTabBtn } from "../components/buttons.slint";
 import { SwitchRow, StepperControl } from "../components/inputs.slint";
+import { Palette } from "../theme.slint";
 
 // ════════════════════════════════════════════════
 // Active Download Progress Dialog (IDM Modern Glass)
@@ -30,6 +31,8 @@ export component DownloadProgressDialog inherits Window {
     in-out property <float> progress: 0.0;
     in-out property <string> percent-text: "0%";
     in-out property <bool> is-paused: false;
+    in-out property <bool> is-torrent: false;
+    in-out property <string> peers-info: "0 peers";
     in-out property <bool> show-details: true;
     in-out property <int> active-tab: 0;
     in-out property <bool> limit-on: false;
@@ -59,7 +62,9 @@ export component DownloadProgressDialog inherits Window {
         x: 0;
         y: 0;
         border-radius: 12px;
-        background: #18181A;
+        background: Palette.modal-bg;
+        border-width: 1px;
+        border-color: Palette.border-color;
         clip: true;
 
         VerticalLayout {
@@ -106,7 +111,7 @@ export component DownloadProgressDialog inherits Window {
                             text: (root.percent-text != "" ? root.percent-text + "  " : "") + root.filename;
                             font-size: 13px;
                             font-weight: 600;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             overflow: elide;
                             vertical-alignment: center;
                         }
@@ -141,7 +146,7 @@ export component DownloadProgressDialog inherits Window {
                 Rectangle {
                     height: 28px;
                     border-radius: 6px;
-                    background: #121214;
+                    background: Palette.card-secondary-bg;
 
                     // Sliding indicator pill - matches active tab geometry exactly
                     Rectangle {
@@ -150,7 +155,7 @@ export component DownloadProgressDialog inherits Window {
                         width: root.active-tab == 0 ? p-tab0.width : (root.active-tab == 1 ? p-tab1.width : p-tab2.width);
                         height: parent.height - 4px;
                         border-radius: 5px;
-                        background: #242428;
+                        background: Palette.hover-bg;
                         animate x { duration: 250ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
                         animate width { duration: 250ms; easing: cubic-bezier(0.2, 1.2, 0.4, 1); }
                     }
@@ -189,7 +194,7 @@ export component DownloadProgressDialog inherits Window {
                 if root.active-tab == 0: Rectangle {
                     height: 98px;
                     border-radius: 7px;
-                    background: #131315;
+                    background: Palette.surface-bg;
 
                     VerticalLayout {
                         padding-left: 10px;
@@ -205,13 +210,13 @@ export component DownloadProgressDialog inherits Window {
                                 text: "URL:";
                                 width: 68px;
                                 font-size: 11px;
-                                color: #8E8E93;
+                                color: Palette.text-secondary;
                                 vertical-alignment: center;
                             }
                             Text {
                                 text: root.url;
                                 font-size: 11px;
-                                color: #64D2FF;
+                                color: Palette.accent-light;
                                 overflow: elide;
                                 horizontal-stretch: 1;
                                 vertical-alignment: center;
@@ -220,9 +225,9 @@ export component DownloadProgressDialog inherits Window {
                                 height: 18px;
                                 min-width: 58px;
                                 border-radius: 4px;
-                                background: ren-u.has-hover ? #0A84FF33 : #0A84FF18;
+                                background: ren-u.has-hover ? Palette.accent-tint-bg : Palette.card-secondary-bg;
                                 border-width: 1px;
-                                border-color: #0A84FF44;
+                                border-color: Palette.border-subtle;
 
                                 ren-u := TouchArea {
                                     clicked => { root.renew-link(); }
@@ -238,7 +243,7 @@ export component DownloadProgressDialog inherits Window {
                                         source: @image-url("../icons/refresh.svg");
                                         width: 9px;
                                         height: 9px;
-                                        tint: #64D2FF;
+                                        tint: Palette.accent-light;
                                         y: (parent.height - self.height) / 2;
                                     }
 
@@ -246,7 +251,7 @@ export component DownloadProgressDialog inherits Window {
                                         text: "Renew";
                                         font-size: 9.5px;
                                         font-weight: 600;
-                                        color: #64D2FF;
+                                        color: Palette.accent-light;
                                         vertical-alignment: center;
                                     }
                                 }
@@ -260,14 +265,15 @@ export component DownloadProgressDialog inherits Window {
                                 text: "Status:";
                                 width: 68px;
                                 font-size: 11px;
-                                color: #8E8E93;
+                                color: Palette.text-secondary;
                                 vertical-alignment: center;
                             }
                             Text {
                                 text: root.is-paused ? "Paused" : root.status-text;
                                 font-size: 11.5px;
                                 font-weight: 600;
-                                color: root.is-error ? #FF453A : (root.is-paused ? #FF9F0A : #30D158);
+                                color: root.is-error ? Palette.danger : (root.is-paused ? Palette.warning : Palette.success);
+                                overflow: elide;
                                 horizontal-stretch: 1;
                                 vertical-alignment: center;
                             }
@@ -284,13 +290,13 @@ export component DownloadProgressDialog inherits Window {
 
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    Text { text: "File size:"; width: 68px; font-size: 11px; color: #8E8E93; }
-                                    Text { text: root.total-size; font-size: 11px; font-weight: 500; color: #FFFFFF; }
+                                    Text { text: "File size:"; width: 68px; font-size: 11px; color: Palette.text-secondary; }
+                                    Text { text: root.total-size; font-size: 11px; font-weight: 500; color: Palette.text-primary; }
                                 }
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    Text { text: "Downloaded:"; width: 68px; font-size: 11px; color: #8E8E93; }
-                                    Text { text: root.downloaded-size + " (" + root.percent-text + ")"; font-size: 11px; font-weight: 600; color: #FFFFFF; }
+                                    Text { text: "Downloaded:"; width: 68px; font-size: 11px; color: Palette.text-secondary; }
+                                    Text { text: root.downloaded-size + " (" + root.percent-text + ")"; font-size: 11px; font-weight: 600; color: Palette.text-primary; }
                                 }
                             }
 
@@ -301,29 +307,41 @@ export component DownloadProgressDialog inherits Window {
 
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    Text { text: "Transfer rate:"; width: 74px; font-size: 11px; color: #8E8E93; }
-                                    Text { text: root.transfer-rate; font-size: 11px; font-weight: 600; color: #64D2FF; }
+                                    Text { text: "Transfer rate:"; width: 74px; font-size: 11px; color: Palette.text-secondary; }
+                                    Text { text: root.transfer-rate; font-size: 11px; font-weight: 600; color: Palette.accent-light; }
                                 }
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    Text { text: "Time left:"; width: 74px; font-size: 11px; color: #8E8E93; }
-                                    Text { text: root.time-left; font-size: 11px; font-weight: 600; color: #FFFFFF; }
+                                    Text { text: "Time left:"; width: 74px; font-size: 11px; color: Palette.text-secondary; }
+                                    Text { text: root.time-left; font-size: 11px; font-weight: 600; color: Palette.text-primary; }
                                 }
                             }
 
-                            // Col 3: Resume capability
+                            // Col 3: Resume capability / Peers
                             VerticalLayout {
                                 width: 130px;
                                 spacing: 3px;
 
-                                HorizontalLayout {
+                                if !root.is-torrent: HorizontalLayout {
                                     spacing: 6px;
-                                    Text { text: "Resume ability:"; width: 80px; font-size: 11px; color: #8E8E93; }
+                                    Text { text: "Resume ability:"; width: 80px; font-size: 11px; color: Palette.text-secondary; }
                                     Text {
                                         text: root.is-error ? "No" : root.resume-capable;
                                         font-size: 11px;
                                         font-weight: 600;
-                                        color: (root.is-error || root.resume-capable == "No") ? #FF453A : #30D158;
+                                        color: (root.is-error || root.resume-capable == "No") ? Palette.danger : Palette.success;
+                                    }
+                                }
+
+                                if root.is-torrent: HorizontalLayout {
+                                    spacing: 6px;
+                                    Text { text: "Swarm / Peers:"; width: 80px; font-size: 11px; color: Palette.text-secondary; }
+                                    Text {
+                                        text: root.peers-info;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: Palette.accent-light;
+                                        overflow: elide;
                                     }
                                 }
                             }
@@ -335,7 +353,7 @@ export component DownloadProgressDialog inherits Window {
                 if root.active-tab == 1: Rectangle {
                     height: 104px;
                     border-radius: 7px;
-                    background: #131315;
+                    background: Palette.surface-bg;
 
                     VerticalLayout {
                         padding: 6px;
@@ -360,7 +378,7 @@ export component DownloadProgressDialog inherits Window {
                             Text {
                                 text: "Maximum Download Speed:";
                                 font-size: 11.5px;
-                                color: #FFFFFF;
+                                color: Palette.text-primary;
                                 vertical-alignment: center;
                                 horizontal-stretch: 1;
                             }
@@ -400,7 +418,7 @@ export component DownloadProgressDialog inherits Window {
                 if root.active-tab == 2: Rectangle {
                     height: 98px;
                     border-radius: 7px;
-                    background: #131315;
+                    background: Palette.surface-bg;
 
                     VerticalLayout {
                         padding-left: 10px;
@@ -413,11 +431,11 @@ export component DownloadProgressDialog inherits Window {
                         // Save To info
                         HorizontalLayout {
                             spacing: 6px;
-                            Text { text: "Save To:"; width: 68px; font-size: 11px; color: #8E8E93; }
-                            Text { text: root.save-path; font-size: 11px; color: #D1D1D6; overflow: elide; horizontal-stretch: 1; }
+                            Text { text: "Save To:"; width: 68px; font-size: 11px; color: Palette.text-secondary; }
+                            Text { text: root.save-path; font-size: 11px; color: Palette.text-primary; overflow: elide; horizontal-stretch: 1; }
                         }
 
-                        Rectangle { height: 1px; background: #222226; }
+                        Rectangle { height: 1px; background: Palette.border-subtle; }
 
                         HorizontalLayout {
                             spacing: 8px;
@@ -428,7 +446,7 @@ export component DownloadProgressDialog inherits Window {
                                 height: 14px;
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 3px;
-                                background: root.show-complete-dialog ? #0A84FF : #252528;
+                                background: root.show-complete-dialog ? Palette.accent : Palette.card-secondary-bg;
                                 animate background { duration: 120ms; }
                                 TouchArea { clicked => { root.show-complete-dialog = !root.show-complete-dialog; root.complete-dialog-changed(root.show-complete-dialog); } }
                                 if root.show-complete-dialog: Icon {
@@ -441,7 +459,7 @@ export component DownloadProgressDialog inherits Window {
                             Text {
                                 text: "Show 'Download complete' dialog when finished";
                                 font-size: 11px;
-                                color: #FFFFFF;
+                                color: Palette.text-primary;
                                 vertical-alignment: center;
                                 TouchArea { clicked => { root.show-complete-dialog = !root.show-complete-dialog; root.complete-dialog-changed(root.show-complete-dialog); } }
                             }
@@ -456,7 +474,7 @@ export component DownloadProgressDialog inherits Window {
                                 height: 14px;
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 3px;
-                                background: root.shutdown-when-done ? #0A84FF : #252528;
+                                background: root.shutdown-when-done ? Palette.accent : Palette.card-secondary-bg;
                                 animate background { duration: 120ms; }
                                 TouchArea { clicked => { root.shutdown-when-done = !root.shutdown-when-done; root.shutdown-changed(root.shutdown-when-done); } }
                                 if root.shutdown-when-done: Icon {
@@ -469,7 +487,7 @@ export component DownloadProgressDialog inherits Window {
                             Text {
                                 text: "Turn off computer when done";
                                 font-size: 11px;
-                                color: #D1D1D6;
+                                color: Palette.text-secondary;
                                 vertical-alignment: center;
                                 TouchArea { clicked => { root.shutdown-when-done = !root.shutdown-when-done; root.shutdown-changed(root.shutdown-when-done); } }
                             }
@@ -481,7 +499,7 @@ export component DownloadProgressDialog inherits Window {
                 Rectangle {
                     height: 10px;
                     border-radius: 5px;
-                    background: #121214;
+                    background: Palette.input-bg;
                     clip: true;
 
                     Rectangle {
@@ -489,7 +507,7 @@ export component DownloadProgressDialog inherits Window {
                         y: 0;
                         width: parent.width * Math.max(0.0, Math.min(1.0, root.progress));
                         height: 100%;
-                        background: root.is-error ? @linear-gradient(90deg, #FF453A, #FF9F0A) : @linear-gradient(90deg, #0A84FF, #30D158);
+                        background: root.is-error ? @linear-gradient(90deg, #FF453A, #FF9F0A) : @linear-gradient(90deg, Palette.accent-gradient-start, Palette.accent-gradient-end);
                         animate width { duration: 150ms; }
                     }
                 }
@@ -504,7 +522,7 @@ export component DownloadProgressDialog inherits Window {
                         height: 28px;
                         min-width: 104px;
                         border-radius: 5px;
-                        background: det-t.has-hover ? #28282C : #18181B;
+                        background: det-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         animate background { duration: 120ms; }
 
                         det-t := TouchArea {
@@ -524,7 +542,7 @@ export component DownloadProgressDialog inherits Window {
                                 text: root.show-details ? "« Hide details" : "» Show details";
                                 font-size: 11.5px;
                                 font-weight: 500;
-                                color: #D1D1D6;
+                                color: Palette.text-primary;
                                 vertical-alignment: center;
                             }
                         }
@@ -540,9 +558,9 @@ export component DownloadProgressDialog inherits Window {
                             height: 28px;
                             min-width: 102px;
                             border-radius: 5px;
-                            background: r-btn.pressed ? #0055B3 : r-btn.has-hover ? #2394FF : #0A84FF;
+                            background: r-btn.pressed ? Palette.accent-pressed : r-btn.has-hover ? Palette.accent-hover : Palette.accent;
                             drop-shadow-blur: 8px;
-                            drop-shadow-color: #0A84FF66;
+                            drop-shadow-color: Palette.accent-tint-bg;
                             animate background { duration: 120ms; }
 
                             r-btn := TouchArea {
@@ -582,8 +600,8 @@ export component DownloadProgressDialog inherits Window {
                             height: 28px;
                             min-width: 84px;
                             border-radius: 5px;
-                            background: p-t.pressed ? #323236 :
-                                        p-t.has-hover ? #28282B : #1E1E22;
+                            background: p-t.pressed ? Palette.hover-bg :
+                                        p-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                             animate background { duration: 120ms; }
 
                             p-t := TouchArea {
@@ -607,7 +625,7 @@ export component DownloadProgressDialog inherits Window {
                                         height: 10px;
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        tint: root.is-error ? #FF9F0A : (root.is-paused ? #30D158 : #FFFFFF);
+                                        tint: root.is-error ? Palette.warning : (root.is-paused ? Palette.success : Palette.text-primary);
                                     }
                                 }
 
@@ -615,7 +633,7 @@ export component DownloadProgressDialog inherits Window {
                                     text: root.is-error ? "Retry" : (root.is-paused ? "Resume" : "Pause");
                                     font-size: 11.5px;
                                     font-weight: 600;
-                                    color: #FFFFFF;
+                                    color: Palette.text-primary;
                                     vertical-alignment: center;
                                 }
                             }
@@ -627,7 +645,7 @@ export component DownloadProgressDialog inherits Window {
                             min-width: 72px;
                             border-radius: 5px;
                             background: c-t.pressed ? #3A2020 :
-                                        c-t.has-hover ? #2D1E1E : #1E1E22;
+                                        c-t.has-hover ? #2D1E1E : Palette.card-secondary-bg;
                             animate background { duration: 120ms; }
 
                             c-t := TouchArea {
@@ -638,7 +656,7 @@ export component DownloadProgressDialog inherits Window {
                                 text: "Cancel";
                                 font-size: 11.5px;
                                 font-weight: 500;
-                                color: c-t.has-hover ? #FF453A : #D1D1D6;
+                                color: c-t.has-hover ? Palette.danger : Palette.text-secondary;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                             }
@@ -656,14 +674,14 @@ export component DownloadProgressDialog inherits Window {
                     Text {
                         text: "Start positions and download progress by connections";
                         font-size: 10.5px;
-                        color: #8E8E93;
+                        color: Palette.text-secondary;
                     }
 
                     // Multi-Segment Connection Bar
                     Rectangle {
                         height: 6px;
                         border-radius: 3px;
-                        background: #121214;
+                        background: Palette.input-bg;
                         clip: true;
 
                         Rectangle {
@@ -671,7 +689,7 @@ export component DownloadProgressDialog inherits Window {
                             y: 0;
                             width: parent.width * Math.max(0.0, Math.min(1.0, root.progress));
                             height: 100%;
-                            background: root.is-error ? @linear-gradient(90deg, #FF453A, #FF9F0A) : @linear-gradient(90deg, #0A84FF, #64D2FF);
+                            background: root.is-error ? @linear-gradient(90deg, #FF453A, #FF9F0A) : @linear-gradient(90deg, Palette.accent-gradient-start, Palette.accent-gradient-end);
                         }
                     }
 
@@ -679,23 +697,23 @@ export component DownloadProgressDialog inherits Window {
                     Rectangle {
                         height: 130px;
                         border-radius: 6px;
-                        background: #131315;
+                        background: Palette.surface-bg;
                         clip: true;
 
                         VerticalLayout {
                             // Table Header (Fixed at top)
                             Rectangle {
                                 height: 22px;
-                                background: #1C1C1F;
+                                background: Palette.card-secondary-bg;
 
                                 HorizontalLayout {
                                     padding-left: 10px;
                                     padding-right: 14px;
                                     spacing: 8px;
 
-                                    Text { text: "N."; width: 36px; font-size: 10px; font-weight: 700; color: #8E8E93; vertical-alignment: center; }
-                                    Text { text: "Downloaded"; width: 120px; font-size: 10px; font-weight: 700; color: #8E8E93; vertical-alignment: center; }
-                                    Text { text: "Info"; horizontal-stretch: 1; font-size: 10px; font-weight: 700; color: #8E8E93; vertical-alignment: center; }
+                                    Text { text: "N."; width: 36px; font-size: 10px; font-weight: 700; color: Palette.text-secondary; vertical-alignment: center; }
+                                    Text { text: "Downloaded"; width: 120px; font-size: 10px; font-weight: 700; color: Palette.text-secondary; vertical-alignment: center; }
+                                    Text { text: "Info"; horizontal-stretch: 1; font-size: 10px; font-weight: 700; color: Palette.text-secondary; vertical-alignment: center; }
                                 }
                             }
 
@@ -711,16 +729,16 @@ export component DownloadProgressDialog inherits Window {
                                     for chunk in root.chunks: Rectangle {
                                         height: 19px;
                                         border-radius: 3px;
-                                        background: Math.mod(chunk.id, 2) == 0 ? #18181B : transparent;
+                                        background: Math.mod(chunk.id, 2) == 0 ? Palette.surface-subtle : transparent;
 
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 10px;
                                             spacing: 8px;
 
-                                            Text { text: chunk.id; width: 36px; font-size: 10.5px; color: #8E8E93; vertical-alignment: center; }
-                                            Text { text: chunk.downloaded; width: 120px; font-size: 10.5px; font-weight: 500; color: #FFFFFF; vertical-alignment: center; }
-                                            Text { text: chunk.status; horizontal-stretch: 1; font-size: 10.5px; color: chunk.status == "Finished" ? #30D158 : #64D2FF; vertical-alignment: center; }
+                                            Text { text: chunk.id; width: 36px; font-size: 10.5px; color: Palette.text-secondary; vertical-alignment: center; }
+                                            Text { text: chunk.downloaded; width: 120px; font-size: 10.5px; font-weight: 500; color: Palette.text-primary; vertical-alignment: center; }
+                                            Text { text: chunk.status; horizontal-stretch: 1; font-size: 10.5px; color: chunk.status == "Finished" ? Palette.success : Palette.accent-light; vertical-alignment: center; }
                                         }
                                     }
                                 }

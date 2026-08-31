@@ -9,6 +9,8 @@ use std::path::Path;
 // good enough; upgrade to win32 sparse/valid-data calls if disk-write stalls show up in profiling.
 pub fn preallocate(path: &Path, total: u64) -> io::Result<File> {
     let f = OpenOptions::new().create(true).write(true).open(path)?;
-    f.set_len(total.max(1))?;
+    if total > 0 {
+        f.set_len(total)?;
+    }
     Ok(f)
 }

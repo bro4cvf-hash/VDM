@@ -1,5 +1,6 @@
 import { Icon } from "../components/icon.slint";
 import { CaptionBtn } from "../components/buttons.slint";
+import { Palette } from "../theme.slint";
 
 // ════════════════════════════════════════════════════════════════════
 // Duplicate / Existing File Conflict Dialog (Apple / macOS Glass Style)
@@ -32,9 +33,9 @@ export component DuplicateDownloadDialog inherits Window {
         width: 100%;
         height: 100%;
         border-radius: 12px;
-        background: #18181A;
+        background: Palette.modal-bg;
         border-width: 1px;
-        border-color: #2E2E32;
+        border-color: Palette.border-color;
         clip: true;
 
         VerticalLayout {
@@ -83,7 +84,7 @@ export component DuplicateDownloadDialog inherits Window {
                             text: root.is-active-downloading ? "Download In Progress" : "File Already In List";
                             font-size: 13px;
                             font-weight: 600;
-                            color: #FFFFFF;
+                            color: Palette.text-primary;
                             vertical-alignment: center;
                         }
                     }
@@ -107,9 +108,9 @@ export component DuplicateDownloadDialog inherits Window {
                 // ── Info Header Card (Non-touchable notice card - darker recessed background) ──
                 Rectangle {
                     border-radius: 10px;
-                    background: #121214;
+                    background: Palette.surface-bg;
                     border-width: 1px;
-                    border-color: #222226;
+                    border-color: Palette.border-color;
 
                     HorizontalLayout {
                         padding-left: 12px;
@@ -122,9 +123,9 @@ export component DuplicateDownloadDialog inherits Window {
                             width: 32px;
                             height: 32px;
                             border-radius: 7px;
-                            background: root.is-active-downloading ? #0A84FF18 : #FF9F0A18;
+                            background: root.is-active-downloading ? Palette.accent-tint-bg : #FF9F0A18;
                             border-width: 1px;
-                            border-color: root.is-active-downloading ? #0A84FF35 : #FF9F0A35;
+                            border-color: root.is-active-downloading ? Palette.border-subtle : #FF9F0A35;
                             y: (parent.height - self.height) / 2;
 
                             Icon {
@@ -133,7 +134,7 @@ export component DuplicateDownloadDialog inherits Window {
                                 height: 16px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                tint: root.is-active-downloading ? #64D2FF : #FFB340;
+                                tint: root.is-active-downloading ? Palette.accent-light : Palette.warning;
                             }
                         }
 
@@ -148,7 +149,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     : "A download for this file already exists in your list";
                                 font-size: 12.5px;
                                 font-weight: 600;
-                                color: #FFFFFF;
+                                color: Palette.text-primary;
                                 overflow: elide;
                             }
 
@@ -156,7 +157,7 @@ export component DuplicateDownloadDialog inherits Window {
                                 text: root.filename;
                                 font-size: 11.5px;
                                 font-weight: 500;
-                                color: #64D2FF;
+                                color: Palette.accent-light;
                                 overflow: elide;
                             }
 
@@ -167,7 +168,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     text: "Status: " + root.existing-status;
                                     font-size: 10.5px;
                                     font-weight: 500;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                     overflow: elide;
                                 }
 
@@ -175,7 +176,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     text: "Size: " + root.existing-size-text;
                                     font-size: 10.5px;
                                     font-weight: 500;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                     overflow: elide;
                                 }
                             }
@@ -191,9 +192,9 @@ export component DuplicateDownloadDialog inherits Window {
                     Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt1-t.pressed ? #2A2A30 : opt1-t.has-hover ? #24242A : #1E1E22;
+                        background: opt1-t.pressed ? Palette.hover-bg : opt1-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opt1-t.pressed ? #0A84FF88 : opt1-t.has-hover ? #3F3F48 : #2E2E34;
+                        border-color: opt1-t.pressed ? Palette.accent : opt1-t.has-hover ? Palette.border-color : Palette.border-subtle;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -213,9 +214,9 @@ export component DuplicateDownloadDialog inherits Window {
                                 width: 32px;
                                 height: 32px;
                                 border-radius: 7px;
-                                background: #0A84FF20;
+                                background: Palette.accent-tint-bg;
                                 border-width: 1px;
-                                border-color: #0A84FF40;
+                                border-color: Palette.border-subtle;
                                 y: (parent.height - self.height) / 2;
 
                                 Icon {
@@ -224,7 +225,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     height: 14px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #0A84FF;
+                                    tint: Palette.accent;
                                 }
                             }
 
@@ -241,16 +242,16 @@ export component DuplicateDownloadDialog inherits Window {
                                         text: "Download as New File (Auto-Rename)";
                                         font-size: 12.5px;
                                         font-weight: 600;
-                                        color: #FFFFFF;
+                                        color: Palette.text-primary;
                                         vertical-alignment: center;
                                     }
 
                                     Rectangle {
                                         height: 16px;
                                         border-radius: 4px;
-                                        background: #0A84FF25;
+                                        background: Palette.accent-tint-bg;
                                         border-width: 1px;
-                                        border-color: #0A84FF50;
+                                        border-color: Palette.accent;
                                         y: (parent.height - self.height) / 2;
 
                                         HorizontalLayout {
@@ -263,7 +264,7 @@ export component DuplicateDownloadDialog inherits Window {
                                                 font-size: 9px;
                                                 font-weight: 700;
                                                 letter-spacing: 0.4px;
-                                                color: #0A84FF;
+                                                color: Palette.accent;
                                                 vertical-alignment: center;
                                             }
                                         }
@@ -273,7 +274,7 @@ export component DuplicateDownloadDialog inherits Window {
                                 Text {
                                     text: "Saves as \"" + root.new-suggested-name + "\" without affecting existing file";
                                     font-size: 11px;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                     overflow: elide;
                                 }
                             }
@@ -284,9 +285,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt-prog-t.pressed ? #2A2A30 : opt-prog-t.has-hover ? #24242A : #1E1E22;
+                        background: opt-prog-t.pressed ? Palette.hover-bg : opt-prog-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opt-prog-t.pressed ? #30D15888 : opt-prog-t.has-hover ? #3F3F48 : #2E2E34;
+                        border-color: opt-prog-t.pressed ? Palette.success : opt-prog-t.has-hover ? Palette.border-color : Palette.border-subtle;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -317,7 +318,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     height: 14px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #30D158;
+                                    tint: Palette.success;
                                 }
                             }
 
@@ -330,13 +331,13 @@ export component DuplicateDownloadDialog inherits Window {
                                     text: "Show Active Download Box";
                                     font-size: 12.5px;
                                     font-weight: 600;
-                                    color: #FFFFFF;
+                                    color: Palette.text-primary;
                                 }
 
                                 Text {
                                     text: "Bring the active download progress window to front";
                                     font-size: 11px;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                 }
                             }
                         }
@@ -346,9 +347,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if !root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt2-t.pressed ? #2A2A30 : opt2-t.has-hover ? #24242A : #1E1E22;
+                        background: opt2-t.pressed ? Palette.hover-bg : opt2-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opt2-t.pressed ? #64D2FF88 : opt2-t.has-hover ? #3F3F48 : #2E2E34;
+                        border-color: opt2-t.pressed ? Palette.accent : opt2-t.has-hover ? Palette.border-color : Palette.border-subtle;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -368,9 +369,9 @@ export component DuplicateDownloadDialog inherits Window {
                                 width: 32px;
                                 height: 32px;
                                 border-radius: 7px;
-                                background: #64D2FF20;
+                                background: Palette.accent-tint-bg;
                                 border-width: 1px;
-                                border-color: #64D2FF40;
+                                border-color: Palette.border-subtle;
                                 y: (parent.height - self.height) / 2;
 
                                 Icon {
@@ -379,7 +380,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     height: 14px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #64D2FF;
+                                    tint: Palette.accent-light;
                                 }
                             }
 
@@ -392,13 +393,13 @@ export component DuplicateDownloadDialog inherits Window {
                                     text: "Resume & Update Address";
                                     font-size: 12.5px;
                                     font-weight: 600;
-                                    color: #FFFFFF;
+                                    color: Palette.text-primary;
                                 }
 
                                 Text {
                                     text: "Refresh expired link and continue from where it stopped";
                                     font-size: 11px;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                 }
                             }
                         }
@@ -408,9 +409,9 @@ export component DuplicateDownloadDialog inherits Window {
                     if !root.is-active-downloading: Rectangle {
                         height: 54px;
                         border-radius: 8px;
-                        background: opt3-t.pressed ? #2A2A30 : opt3-t.has-hover ? #24242A : #1E1E22;
+                        background: opt3-t.pressed ? Palette.hover-bg : opt3-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: opt3-t.pressed ? #FF453A88 : opt3-t.has-hover ? #3F3F48 : #2E2E34;
+                        border-color: opt3-t.pressed ? Palette.danger : opt3-t.has-hover ? Palette.border-color : Palette.border-subtle;
                         animate background { duration: 120ms; }
                         animate border-color { duration: 120ms; }
 
@@ -441,7 +442,7 @@ export component DuplicateDownloadDialog inherits Window {
                                     height: 14px;
                                     x: (parent.width - self.width) / 2;
                                     y: (parent.height - self.height) / 2;
-                                    tint: #FF453A;
+                                    tint: Palette.danger;
                                 }
                             }
 
@@ -454,13 +455,13 @@ export component DuplicateDownloadDialog inherits Window {
                                     text: "Overwrite & Restart";
                                     font-size: 12.5px;
                                     font-weight: 600;
-                                    color: #FF6961;
+                                    color: Palette.danger;
                                 }
 
                                 Text {
                                     text: "Replace the previous file and download afresh from 0%";
                                     font-size: 11px;
-                                    color: #8E8E93;
+                                    color: Palette.text-secondary;
                                     overflow: elide;
                                 }
                             }
@@ -478,9 +479,9 @@ export component DuplicateDownloadDialog inherits Window {
                         height: 32px;
                         min-width: 80px;
                         border-radius: 6px;
-                        background: cnl-t.pressed ? #323236 : cnl-t.has-hover ? #2A2A2E : #222225;
+                        background: cnl-t.pressed ? Palette.hover-bg : cnl-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
                         border-width: 1px;
-                        border-color: cnl-t.has-hover ? #404046 : #303034;
+                        border-color: Palette.border-subtle;
                         animate background { duration: 120ms; }
 
                         cnl-t := TouchArea {
@@ -492,7 +493,7 @@ export component DuplicateDownloadDialog inherits Window {
                             text: "Cancel";
                             font-size: 12px;
                             font-weight: 500;
-                            color: cnl-t.has-hover ? #FFFFFF : #D4D4D8;
+                            color: cnl-t.has-hover ? Palette.text-primary : Palette.text-secondary;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
