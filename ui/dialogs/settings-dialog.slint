@@ -8,7 +8,7 @@ import { Palette } from "../theme.slint";
 // ════════════════════════════════════════════════
 export component SettingsDialog inherits Window {
     width: 580px;
-    height: 520px;
+    height: 560px;
     no-frame: true;
     background: transparent;
     title: "Settings & Preferences";
@@ -21,6 +21,7 @@ export component SettingsDialog inherits Window {
     in-out property <int> max-connections: 8;
     in-out property <float> speed-limit-mbps: 0;
     in-out property <bool> start-at-startup: false;
+    in-out property <string> close-action: "tray";
     in-out property <float> torrent-down-mbps: 0;
     in-out property <float> torrent-up-mbps: 0;
     in-out property <int> torrent-max-peers: 100;
@@ -35,6 +36,7 @@ export component SettingsDialog inherits Window {
     callback set-max-connections(int);
     callback set-speed-limit(float);
     callback set-start-at-startup(bool);
+    callback set-close-action(string);
     callback open-startup-apps();
     callback set-torrent-down-limit(float);
     callback set-torrent-up-limit(float);
@@ -444,7 +446,7 @@ export component SettingsDialog inherits Window {
                             }
 
                             HorizontalLayout {
-                                spacing: 8px;
+                                spacing: 6px;
 
                                 ThemeCard {
                                     horizontal-stretch: 1;
@@ -458,6 +460,21 @@ export component SettingsDialog inherits Window {
                                     clicked => {
                                         Palette.active-theme = 0;
                                         root.set-theme(0);
+                                    }
+                                }
+
+                                ThemeCard {
+                                    horizontal-stretch: 1;
+                                    name: "OLED Black";
+                                    active: Palette.active-theme == 4;
+                                    c1: #000000;
+                                    c2: #0D0D0E;
+                                    c3: #141416;
+                                    c4: #0A84FF;
+                                    c5: #60A5FA;
+                                    clicked => {
+                                        Palette.active-theme = 4;
+                                        root.set-theme(4);
                                     }
                                 }
 
@@ -608,6 +625,141 @@ export component SettingsDialog inherits Window {
                                                 color: startup-btn-touch.has-hover ? Palette.text-primary : Palette.text-secondary;
                                                 vertical-alignment: center;
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Window Close Action Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                spacing: 8px;
+
+                                VerticalLayout {
+                                    spacing: 1px;
+
+                                    Text {
+                                        text: "Window Close Action (✕ Button)";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Configure behavior when closing the main VDM window";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                // Option 1: Exit VDM completely
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 34px;
+                                    border-radius: 6px;
+                                    background: root.close-action == "exit" ? Palette.accent-tint-bg : (opt-exit-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+                                    border-width: 1px;
+                                    border-color: root.close-action == "exit" ? Palette.accent : Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+                                    animate border-color { duration: 120ms; }
+
+                                    opt-exit-t := TouchArea {
+                                        clicked => {
+                                            root.close-action = "exit";
+                                            root.set-close-action("exit");
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        Rectangle {
+                                            width: 14px;
+                                            height: 14px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: @image-url("../icons/x.svg");
+                                                width: 11px;
+                                                height: 11px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                tint: root.close-action == "exit" ? Palette.accent : Palette.text-secondary;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Exit VDM completely";
+                                            font-size: 11.5px;
+                                            font-weight: root.close-action == "exit" ? 600 : 400;
+                                            color: root.close-action == "exit" ? Palette.text-primary : Palette.text-secondary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Option 2: Minimize to System Tray
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 34px;
+                                    border-radius: 6px;
+                                    background: root.close-action == "tray" ? Palette.accent-tint-bg : (opt-tray-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+                                    border-width: 1px;
+                                    border-color: root.close-action == "tray" ? Palette.accent : Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+                                    animate border-color { duration: 120ms; }
+
+                                    opt-tray-t := TouchArea {
+                                        clicked => {
+                                            root.close-action = "tray";
+                                            root.set-close-action("tray");
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        Rectangle {
+                                            width: 14px;
+                                            height: 14px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: @image-url("../icons/layers.svg");
+                                                width: 12px;
+                                                height: 12px;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                tint: root.close-action == "tray" ? Palette.accent : Palette.text-secondary;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Minimize to System Tray";
+                                            font-size: 11.5px;
+                                            font-weight: root.close-action == "tray" ? 600 : 400;
+                                            color: root.close-action == "tray" ? Palette.text-primary : Palette.text-secondary;
+                                            vertical-alignment: center;
                                         }
                                     }
                                 }

@@ -273,13 +273,33 @@ impl BrowserDetector {
             }
         }
 
-        let _ = Command::new("cmd").args(["/C", "start", "chrome://extensions"]).spawn();
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let mut c = Command::new("cmd");
+            c.creation_flags(0x08000000);
+            let _ = c.args(["/C", "start", "chrome://extensions"]).spawn();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = Command::new("xdg-open").arg("chrome://extensions").spawn();
+        }
     }
 
     pub fn open_download_page(browser_id: &str) {
         let browsers = Self::get_browsers();
         if let Some(b) = browsers.iter().find(|b| b.id == browser_id) {
-            let _ = Command::new("cmd").args(["/C", "start", &b.download_url]).spawn();
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                let mut c = Command::new("cmd");
+                c.creation_flags(0x08000000);
+                let _ = c.args(["/C", "start", &b.download_url]).spawn();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("xdg-open").arg(&b.download_url).spawn();
+            }
         }
     }
 }

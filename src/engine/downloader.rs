@@ -135,14 +135,23 @@ fn segments_from(s: &Sample) -> Vec<Segment> {
         .collect()
 }
 
+#[derive(Clone, Debug)]
+pub struct CachedTask {
+    pub row: TaskRow,
+    pub chunks: Vec<ChunkRow>,
+}
+
 pub struct Manager {
     weak: Weak<Manager>,
     pub db: Arc<Db>,
     pub http: reqwest::Client,
     pub limiter: Arc<Limiter>,
-    pub torrent: Arc<super::torrent::TorrentEngine>,
+    pub torrent_settings: Arc<Mutex<super::torrent::TorrentSettings>>,
+    pub default_torrent_dir: PathBuf,
+    torrent: Mutex<Option<Arc<super::torrent::TorrentEngine>>>,
     pub max_conns: AtomicU64,
     pub max_active: AtomicU64,
+    pub tasks: Mutex<Vec<CachedTask>>,
     runs: Mutex<HashMap<String, Arc<Runtime>>>,
     pub statuses: Mutex<HashMap<String, Status>>,
     pub errors: Mutex<HashMap<String, String>>,
@@ -156,7 +165,8 @@ impl Manager {
         let db_arc = Arc::new(db);
         let rows = db_arc.list_tasks().unwrap_or_default();
         let mut statuses = HashMap::with_capacity(rows.len());
-        for (t, _) in &rows {
+        let mut tasks = Vec::with_capacity(rows.len());
+        for (t, chunks) in rows {
             let s = match t.status {
                 Status::Downloading | Status::Connecting | Status::Queued => Status::Paused,
                 other => other,
@@ -164,7 +174,10 @@ impl Manager {
             if s != t.status {
                 db_arc.set_status(&t.id, s).ok();
             }
-            statuses.insert(t.id.clone(), s);
+            let mut row = t;
+            row.status = s;
+            statuses.insert(row.id.clone(), s);
+            tasks.push(CachedTask { row, chunks });
         }
 
         let speed = db_arc.get_kv("speed_bps").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -209,52 +222,6 @@ impl Manager {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("Torrents");
 
-        let torrent = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => match handle.runtime_flavor() {
-                tokio::runtime::RuntimeFlavor::MultiThread => {
-                    tokio::task::block_in_place(|| {
-                        handle.block_on(super::torrent::TorrentEngine::new(
-                            default_torrent_dir,
-                            torrent_settings,
-                        ))
-                    })
-                }
-                _ => {
-                    std::thread::scope(|s| {
-                        s.spawn(|| {
-                            let rt = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .expect("temp runtime");
-                            rt.block_on(super::torrent::TorrentEngine::new(
-                                default_torrent_dir,
-                                torrent_settings,
-                            ))
-                        })
-                        .join()
-                        .expect("join thread")
-                    })
-                }
-            },
-            Err(_) => {
-                std::thread::scope(|s| {
-                    s.spawn(|| {
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .expect("temp runtime");
-                        rt.block_on(super::torrent::TorrentEngine::new(
-                            default_torrent_dir,
-                            torrent_settings,
-                        ))
-                    })
-                    .join()
-                    .expect("join thread")
-                })
-            }
-        }
-        .expect("torrent engine");
-
         let http = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
             .connect_timeout(Duration::from_secs(20))
@@ -268,9 +235,12 @@ impl Manager {
             db: db_arc.clone(),
             http,
             limiter: Arc::new(Limiter::new(speed)),
-            torrent: Arc::new(torrent),
+            torrent_settings: Arc::new(Mutex::new(torrent_settings)),
+            default_torrent_dir,
+            torrent: Mutex::new(None),
             max_conns: AtomicU64::new(max_conns),
             max_active: AtomicU64::new(max_active),
+            tasks: Mutex::new(tasks),
             runs: Mutex::new(HashMap::new()),
             statuses: Mutex::new(statuses),
             errors: Mutex::new(HashMap::new()),
@@ -280,8 +250,94 @@ impl Manager {
         })
     }
 
-    pub fn torrent(&self) -> Arc<super::torrent::TorrentEngine> {
-        self.torrent.clone()
+    #[allow(dead_code)]
+    pub fn get_torrent_settings(&self) -> super::torrent::TorrentSettings {
+        self.torrent_settings.lock().unwrap().clone()
+    }
+
+    pub fn update_torrent_settings<F: FnOnce(&mut super::torrent::TorrentSettings)>(&self, f: F) {
+        let mut s = self.torrent_settings.lock().unwrap();
+        f(&mut s);
+        let cur = s.clone();
+        drop(s);
+        if let Some(t) = self.torrent.lock().unwrap().as_ref() {
+            t.update_settings(cur);
+        }
+    }
+
+    pub fn get_torrent_engine(&self) -> Option<Arc<super::torrent::TorrentEngine>> {
+        self.torrent.lock().unwrap().clone()
+    }
+
+    pub fn ensure_torrent_engine(&self) -> anyhow::Result<Arc<super::torrent::TorrentEngine>> {
+        let mut guard = self.torrent.lock().unwrap();
+        if let Some(ref t) = *guard {
+            return Ok(t.clone());
+        }
+        let settings = self.torrent_settings.lock().unwrap().clone();
+        let dir = self.default_torrent_dir.clone();
+        let engine = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| {
+                        handle.block_on(super::torrent::TorrentEngine::new(dir, settings))
+                    })
+                }
+                _ => {
+                    std::thread::scope(|s| {
+                        s.spawn(|| {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("temp runtime");
+                            rt.block_on(super::torrent::TorrentEngine::new(dir, settings))
+                        })
+                        .join()
+                        .expect("join thread")
+                    })
+                }
+            },
+            Err(_) => {
+                std::thread::scope(|s| {
+                    s.spawn(|| {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("temp runtime");
+                        rt.block_on(super::torrent::TorrentEngine::new(dir, settings))
+                    })
+                    .join()
+                    .expect("join thread")
+                })
+            }
+        }?;
+        let arc = Arc::new(engine);
+        *guard = Some(arc.clone());
+        Ok(arc)
+    }
+
+    pub async fn ensure_torrent_engine_async(&self) -> anyhow::Result<Arc<super::torrent::TorrentEngine>> {
+        {
+            let guard = self.torrent.lock().unwrap();
+            if let Some(ref t) = *guard {
+                return Ok(t.clone());
+            }
+        }
+        let settings = self.torrent_settings.lock().unwrap().clone();
+        let dir = self.default_torrent_dir.clone();
+        let engine = super::torrent::TorrentEngine::new(dir, settings).await?;
+        let arc = Arc::new(engine);
+        let mut guard = self.torrent.lock().unwrap();
+        if let Some(ref existing) = *guard {
+            return Ok(existing.clone());
+        }
+        *guard = Some(arc.clone());
+        Ok(arc)
+    }
+
+    #[allow(dead_code)]
+    pub fn torrent(&self) -> anyhow::Result<Arc<super::torrent::TorrentEngine>> {
+        self.ensure_torrent_engine()
     }
 
     // ---------------- settings ----------------
@@ -377,6 +433,10 @@ impl Manager {
             headers_json: serde_json::to_string(&headers)?,
         };
         self.db.insert_task(&row)?;
+        self.tasks.lock().unwrap().push(CachedTask {
+            row: row.clone(),
+            chunks: Vec::new(),
+        });
         self.statuses.lock().unwrap().insert(row.id.clone(), Status::Queued);
         self.pump();
         self.snapshot_of(&row.id)
@@ -384,17 +444,50 @@ impl Manager {
 
 
     pub fn pause(&self, id: &str) -> anyhow::Result<()> {
+        self.pause_internal(id, true)
+    }
+
+    fn pause_internal(&self, id: &str, should_pump: bool) -> anyhow::Result<()> {
         match *self.statuses.lock().unwrap().get(id).unwrap_or(&Status::Paused) {
             Status::Downloading | Status::Connecting | Status::Queued => {}
             _ => return Ok(()),
         }
         self.db.set_status(id, Status::Paused)?;
         self.statuses.lock().unwrap().insert(id.into(), Status::Paused);
+        if let Some(task) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+            task.row.status = Status::Paused;
+        }
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Pause);
+            if let Ok(guard) = rt.cells.lock() {
+                let chunk_rows: Vec<ChunkRow> = guard
+                    .iter()
+                    .map(|c| {
+                        let (s, e) = c.span();
+                        ChunkRow {
+                            idx: c.idx as i64,
+                            start: s as i64,
+                            end: if e == worker::UNKNOWN_END {
+                                -1
+                            } else {
+                                (e.saturating_sub(1)) as i64
+                            },
+                            done: c.done.load(Ordering::Relaxed) as i64,
+                        }
+                    })
+                    .collect();
+                self.db.replace_chunks(id, &chunk_rows).ok();
+                if let Some(task) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                    task.chunks = chunk_rows;
+                }
+            }
         }
-        self.torrent.pause_torrent(id);
-        self.pump(); // freed a slot — promote the oldest queued task
+        if let Some(t) = self.get_torrent_engine() {
+            t.pause_torrent(id);
+        }
+        if should_pump {
+            self.pump(); // freed a slot — promote the oldest queued task
+        }
         Ok(())
     }
 
@@ -407,7 +500,7 @@ impl Manager {
                 .collect()
         };
         for id in ids {
-            let _ = self.pause(&id);
+            let _ = self.pause_internal(&id, false);
         }
     }
 
@@ -425,7 +518,12 @@ impl Manager {
         self.errors.lock().unwrap().remove(id);
         self.db.set_status(id, Status::Queued)?;
         self.statuses.lock().unwrap().insert(id.into(), Status::Queued);
-        self.torrent.resume_torrent(id);
+        if let Some(task) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+            task.row.status = Status::Queued;
+        }
+        if let Some(t) = self.get_torrent_engine() {
+            t.resume_torrent(id);
+        }
         self.pump();
         Ok(())
     }
@@ -447,14 +545,17 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
         }
-        self.torrent.cancel_torrent(id);
+        if let Some(t) = self.get_torrent_engine() {
+            t.cancel_torrent(id);
+        }
         if delete_file {
-            let rows = self.db.list_tasks()?;
-            if let Some((t, _)) = rows.iter().find(|(t, _)| t.id == id) {
-                fs::remove_file(Path::new(&t.dir).join(&t.filename)).ok();
+            let tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.iter().find(|t| t.row.id == id) {
+                fs::remove_file(Path::new(&task.row.dir).join(&task.row.filename)).ok();
             }
         }
         self.db.delete_task(id)?;
+        self.tasks.lock().unwrap().retain(|t| t.row.id != id);
         self.runs.lock().unwrap().remove(id);
         self.statuses.lock().unwrap().remove(id);
         self.errors.lock().unwrap().remove(id);
@@ -465,11 +566,17 @@ impl Manager {
     }
 
     pub fn clear_completed(&self) -> anyhow::Result<()> {
-        let rows = self.db.list_tasks()?;
-        for (t, _) in rows {
-            if t.status == Status::Completed {
-                let _ = self.remove(&t.id, false);
-            }
+        let ids: Vec<String> = {
+            let tasks = self.tasks.lock().unwrap();
+            let statuses = self.statuses.lock().unwrap();
+            tasks
+                .iter()
+                .filter(|t| statuses.get(&t.row.id) == Some(&Status::Completed) || t.row.status == Status::Completed)
+                .map(|t| t.row.id.clone())
+                .collect()
+        };
+        for id in ids {
+            let _ = self.remove(&id, false);
         }
         Ok(())
     }
@@ -478,13 +585,23 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
         }
-        self.torrent.cancel_torrent(id);
+        if let Some(t) = self.get_torrent_engine() {
+            t.cancel_torrent(id);
+        }
         self.runs.lock().unwrap().remove(id);
         self.post_processing.lock().unwrap().remove(id);
         self.errors.lock().unwrap().remove(id);
 
-        if let Ok(Some((t, _))) = self.db.get_task(id) {
-            let path = Path::new(&t.dir).join(&t.filename);
+        let mut file_to_remove = None;
+        {
+            let mut tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.iter_mut().find(|t| t.row.id == id) {
+                file_to_remove = Some(Path::new(&task.row.dir).join(&task.row.filename));
+                task.chunks.clear();
+                task.row.status = Status::Queued;
+            }
+        }
+        if let Some(path) = file_to_remove {
             let _ = fs::remove_file(&path);
             let _ = self.db.replace_chunks(id, &[]);
             self.db.set_status(id, Status::Queued)?;
@@ -502,46 +619,62 @@ impl Manager {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Pause);
         }
-        if let Ok(Some((t, _))) = self.db.get_task(id) {
-            let old_dir = t.dir.clone();
-            let old_path = Path::new(&old_dir).join(&t.filename);
-            let target_dir = new_dir.unwrap_or(&old_dir).trim();
-            let final_dir = if target_dir.is_empty() { &old_dir } else { target_dir };
-            let new_path = Path::new(final_dir).join(clean_filename);
-
+        let mut rename_paths = None;
+        {
+            let tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.iter().find(|t| t.row.id == id) {
+                let old_dir = task.row.dir.clone();
+                let old_path = Path::new(&old_dir).join(&task.row.filename);
+                let target_dir = new_dir.unwrap_or(&old_dir).trim();
+                let final_dir = if target_dir.is_empty() { old_dir.clone() } else { target_dir.to_string() };
+                let new_path = Path::new(&final_dir).join(clean_filename);
+                rename_paths = Some((old_path, new_path, final_dir));
+            }
+        }
+        if let Some((old_path, new_path, final_dir)) = rename_paths {
             if old_path.exists() && old_path != new_path {
                 if let Some(parent) = new_path.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
                 let _ = fs::rename(&old_path, &new_path);
             }
-
-            self.db.update_filename_and_dir(id, clean_filename, final_dir)?;
+            self.db.update_filename_and_dir(id, clean_filename, &final_dir)?;
+            let mut tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.iter_mut().find(|t| t.row.id == id) {
+                task.row.filename = clean_filename.to_string();
+                task.row.dir = final_dir;
+            }
         }
         Ok(())
     }
 
     pub fn get_task_path(&self, id: &str) -> Option<PathBuf> {
-        self.db
-            .get_task(id)
-            .ok()
-            .flatten()
-            .and_then(|(t, _)| Some(PathBuf::from(t.dir).join(t.filename)))
+        let tasks = self.tasks.lock().unwrap();
+        tasks
+            .iter()
+            .find(|t| t.row.id == id)
+            .map(|t| PathBuf::from(&t.row.dir).join(&t.row.filename))
     }
 
     // ---------------- snapshots ----------------
 
     pub fn snapshot_of(&self, id: &str) -> anyhow::Result<TaskSnapshot> {
-        match self.db.get_task(id)? {
-            Some((t, chunks)) => Ok(self.merged_snapshot(&t, &chunks)),
-            None => anyhow::bail!("task not found"),
-        }
+        let (row, chunks) = {
+            let tasks = self.tasks.lock().unwrap();
+            let Some(t) = tasks.iter().find(|t| t.row.id == id) else {
+                anyhow::bail!("task not found");
+            };
+            (t.row.clone(), t.chunks.clone())
+        };
+        Ok(self.merged_snapshot(&row, &chunks))
     }
 
     pub fn list_downloads(&self) -> anyhow::Result<Vec<TaskSnapshot>> {
-        Ok(self
-            .db
-            .list_tasks()?
+        let items: Vec<(TaskRow, Vec<ChunkRow>)> = {
+            let tasks = self.tasks.lock().unwrap();
+            tasks.iter().map(|t| (t.row.clone(), t.chunks.clone())).collect()
+        };
+        Ok(items
             .into_iter()
             .map(|(t, chunks)| self.merged_snapshot(&t, &chunks))
             .collect())
@@ -657,11 +790,23 @@ impl Manager {
         if trimmed.is_empty() {
             return Err(anyhow::anyhow!("URL cannot be empty"));
         }
-        if let Some(h) = headers {
+        let json_opt = if let Some(h) = headers {
             let json = serde_json::to_string(h)?;
             self.db.update_url_and_headers(id, trimmed, &json)?;
+            Some(json)
         } else {
             self.db.update_url(id, trimmed)?;
+            None
+        };
+        {
+            let mut tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.iter_mut().find(|t| t.row.id == id) {
+                task.row.url = trimmed.to_string();
+                if let Some(json) = json_opt {
+                    task.row.headers_json = json;
+                }
+                task.row.status = Status::Queued;
+            }
         }
         self.errors.lock().unwrap().remove(id);
         self.db.set_status(id, Status::Queued)?;
@@ -710,6 +855,9 @@ impl Manager {
         if let Some(msg) = err_text {
             self.db.set_status(&id, Status::Error).ok();
             self.statuses.lock().unwrap().insert(id.clone(), Status::Error);
+            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                t.row.status = Status::Error;
+            }
             self.errors.lock().unwrap().insert(id.clone(), msg.clone());
             eprintln!("[VDM] download {id} failed: {msg}");
         }
@@ -722,10 +870,11 @@ impl Manager {
         };
 
         let (row, chunk_rows) = {
-            let Some((t, chunks)) = self.db.get_task(id)? else {
+            let tasks = self.tasks.lock().unwrap();
+            let Some(t) = tasks.iter().find(|t| t.row.id == id) else {
                 return Ok(());
             };
-            (t, chunks)
+            (t.row.clone(), t.chunks.clone())
         };
         if row.status == Status::Paused {
             // keep the in-memory map in sync or the task occupies a pump slot forever
@@ -799,6 +948,9 @@ impl Manager {
                 let sanitized = probe::sanitize_name(better);
                 actual_filename = unique_path_name(&row.dir, &sanitized);
                 let _ = self.db.update_filename(&row.id, &actual_filename);
+                if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+                    t.row.filename = actual_filename.clone();
+                }
                 let mut info = rt.info.lock().unwrap();
                 info.filename = actual_filename.clone();
             }
@@ -868,27 +1020,28 @@ impl Manager {
             vec![Arc::new(Cell::new(0, 0, worker::UNKNOWN_END))]
         };
 
-        self.db.replace_chunks(
-            id,
-            &cells
-                .iter()
-                .map(|c| ChunkRow {
-                    idx: c.idx as i64,
-                    start: c.span().0 as i64,
-                    end: if c.span().1 == worker::UNKNOWN_END {
-                        -1
-                    } else {
-                        (c.span().1.saturating_sub(1)) as i64
-                    },
-                    done: c.done.load(Ordering::Relaxed) as i64,
-                })
-                .collect::<Vec<_>>(),
-        )?;
+        let chunk_row_vec = cells
+            .iter()
+            .map(|c| ChunkRow {
+                idx: c.idx as i64,
+                start: c.span().0 as i64,
+                end: if c.span().1 == worker::UNKNOWN_END {
+                    -1
+                } else {
+                    (c.span().1.saturating_sub(1)) as i64
+                },
+                done: c.done.load(Ordering::Relaxed) as i64,
+            })
+            .collect::<Vec<_>>();
+
+        self.db.replace_chunks(id, &chunk_row_vec)?;
+        if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+            t.chunks = chunk_row_vec;
+        }
         *rt.cells.lock().unwrap() = cells.clone();
         rt.total.store(total.map(|t| t as i64).unwrap_or(0), Ordering::Relaxed);
 
-
-        self.db.update_probe_result(&TaskRow {
+        let updated_row = TaskRow {
             id: id.into(),
             filename: actual_filename.clone(),
             url: row.url.clone(),
@@ -901,7 +1054,11 @@ impl Manager {
             status: Status::Downloading,
             created_at: row.created_at,
             headers_json: row.headers_json.clone(),
-        })?;
+        };
+        self.db.update_probe_result(&updated_row)?;
+        if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+            t.row = updated_row;
+        }
 
         let ctx = WorkerCtx {
             client: self.http.clone(),
@@ -928,7 +1085,6 @@ impl Manager {
             joinset.spawn(worker::run_worker(ctx.clone(), rt.cmd_tx.subscribe()));
         }
 
-
         let mut failed: Option<String> = None;
         let mut stopped = false;
         let mut paused_seen = false;
@@ -951,8 +1107,29 @@ impl Manager {
             }
         }
 
-        // Flush all chunk states to database
-        worker::persist_all_cells(&self.db, id, &rt.cells);
+        // Flush all chunk states to database and in-memory task state cache
+        if let Ok(guard) = rt.cells.lock() {
+            let chunk_rows: Vec<ChunkRow> = guard
+                .iter()
+                .map(|c| {
+                    let (s, e) = c.span();
+                    ChunkRow {
+                        idx: c.idx as i64,
+                        start: s as i64,
+                        end: if e == worker::UNKNOWN_END {
+                            -1
+                        } else {
+                            (e.saturating_sub(1)) as i64
+                        },
+                        done: c.done.load(Ordering::Relaxed) as i64,
+                    }
+                })
+                .collect();
+            self.db.replace_chunks(id, &chunk_rows).ok();
+            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                t.chunks = chunk_rows;
+            }
+        }
 
         if stopped {
             return Err(anyhow::anyhow!("__stopped__"));
@@ -967,6 +1144,9 @@ impl Manager {
             Status::Queued | Status::Connecting => {
                 self.statuses.lock().unwrap().insert(id.into(), Status::Queued);
                 self.db.set_status(id, Status::Queued).ok();
+                if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                    t.row.status = Status::Queued;
+                }
                 return Ok(());
             }
             _ => {}
@@ -1014,10 +1194,19 @@ impl Manager {
             }
             self.db.set_status(id, Status::Completed)?;
             self.statuses.lock().unwrap().insert(id.into(), Status::Completed);
+            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                t.row.status = Status::Completed;
+                if let Some(tot) = total {
+                    t.row.total = tot as i64;
+                }
+            }
             println!("[VDM] download complete: {}", row.filename);
         } else {
             self.db.set_status(id, Status::Paused)?;
             self.statuses.lock().unwrap().insert(id.into(), Status::Paused);
+            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == id) {
+                t.row.status = Status::Paused;
+            }
         }
         Ok(())
     }
@@ -1028,16 +1217,23 @@ impl Manager {
 
         self.statuses.lock().unwrap().insert(row.id.clone(), Status::Connecting);
         self.db.set_status(&row.id, Status::Connecting).ok();
+        if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+            t.row.status = Status::Connecting;
+        }
 
         let only_files: Option<Vec<usize>> = serde_json::from_str::<HashMap<String, serde_json::Value>>(&row.headers_json)
             .ok()
             .and_then(|h| h.get("selected_files").cloned())
             .and_then(|v| serde_json::from_value::<Vec<usize>>(v).ok());
 
-        let handle = self.torrent.start_torrent(&row.id, &row.url, &output_dir, only_files).await?;
+        let torrent = self.ensure_torrent_engine_async().await?;
+        let handle = torrent.start_torrent(&row.id, &row.url, &output_dir, only_files).await?;
 
         self.statuses.lock().unwrap().insert(row.id.clone(), Status::Downloading);
         self.db.set_status(&row.id, Status::Downloading).ok();
+        if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+            t.row.status = Status::Downloading;
+        }
 
         let mut cmd_rx = rt.cmd_tx.subscribe();
         let mut interval = tokio::time::interval(Duration::from_millis(250));
@@ -1051,6 +1247,18 @@ impl Manager {
                     if res.is_ok() {
                         let val = *cmd_rx.borrow();
                         if val == Cmd::Pause || val == Cmd::Stop {
+                            let stats = handle.stats();
+                            let total_b = if stats.total_bytes > 0 { stats.total_bytes } else { row.total.max(0) as u64 };
+                            let chunk_row = ChunkRow {
+                                idx: 0,
+                                start: 0,
+                                end: if total_b > 0 { total_b as i64 } else { stats.progress_bytes as i64 },
+                                done: stats.progress_bytes as i64,
+                            };
+                            self.db.replace_chunks(&row.id, &[chunk_row]).ok();
+                            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+                                t.chunks = vec![chunk_row];
+                            }
                             return Err(anyhow::anyhow!("__stopped__"));
                         }
                     }
@@ -1072,8 +1280,13 @@ impl Manager {
                     } else {
                         Status::Connecting
                     };
-                    self.statuses.lock().unwrap().insert(row.id.clone(), current_status);
-                    self.db.set_status(&row.id, current_status).ok();
+                    let prev_status = self.statuses.lock().unwrap().insert(row.id.clone(), current_status);
+                    if prev_status != Some(current_status) {
+                        self.db.set_status(&row.id, current_status).ok();
+                        if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+                            t.row.status = current_status;
+                        }
+                    }
 
                     if dt >= 0.2 {
                         if is_initializing || live_peers == 0 {
@@ -1104,7 +1317,12 @@ impl Manager {
 
                     if total_bytes > 0 {
                         rt.total.store(total_bytes as i64, Ordering::Relaxed);
-                        self.db.set_total(&row.id, total_bytes as i64).ok();
+                        if total_bytes as i64 != row.total {
+                            self.db.set_total(&row.id, total_bytes as i64).ok();
+                            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+                                t.row.total = total_bytes as i64;
+                            }
+                        }
                     }
 
                     // Update chunk progress visualizer
@@ -1120,8 +1338,24 @@ impl Manager {
                     }
 
                     if stats.finished {
-                        self.statuses.lock().unwrap().insert(row.id.clone(), Status::Completed);
-                        self.db.set_status(&row.id, Status::Completed).ok();
+                        let prev = self.statuses.lock().unwrap().insert(row.id.clone(), Status::Completed);
+                        if prev != Some(Status::Completed) {
+                            self.db.set_status(&row.id, Status::Completed).ok();
+                            let chunk_row = ChunkRow {
+                                idx: 0,
+                                start: 0,
+                                end: if total_bytes > 0 { total_bytes as i64 } else { stats.progress_bytes as i64 },
+                                done: stats.progress_bytes as i64,
+                            };
+                            self.db.replace_chunks(&row.id, &[chunk_row]).ok();
+                            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == row.id) {
+                                t.row.status = Status::Completed;
+                                if total_bytes > 0 {
+                                    t.row.total = total_bytes as i64;
+                                }
+                                t.chunks = vec![chunk_row];
+                            }
+                        }
                         return Ok(());
                     }
 
@@ -1170,6 +1404,9 @@ impl Manager {
                 .unwrap()
                 .insert(next.clone(), Status::Connecting);
             self.db.set_status(&next, Status::Connecting).ok();
+            if let Some(t) = self.tasks.lock().unwrap().iter_mut().find(|t| t.row.id == next) {
+                t.row.status = Status::Connecting;
+            }
             self.spawn_run(&next);
         }
         self.pumping.store(false, Ordering::SeqCst);
@@ -1186,10 +1423,11 @@ impl Manager {
 
     fn oldest_queued(&self) -> Option<String> {
         let st = self.statuses.lock().unwrap();
-        self.db
-            .queued_ids()
-            .into_iter()
-            .find(|id| st.get(id) == Some(&Status::Queued))
+        let tasks = self.tasks.lock().unwrap();
+        tasks
+            .iter()
+            .find(|t| st.get(&t.row.id) == Some(&Status::Queued))
+            .map(|t| t.row.id.clone())
     }
 }
 
@@ -1384,6 +1622,207 @@ mod tests {
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
+
+    #[tokio::test]
+    async fn test_in_memory_task_cache_and_zero_disk_reads() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_cache_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        // Add 3 downloads
+        let snap1 = mgr.add_download("https://example.com/file1.zip".into(), Some(temp_dir.to_string_lossy().to_string()), Some("file1.zip".into()), HashMap::new()).unwrap();
+        let snap2 = mgr.add_download("https://example.com/file2.zip".into(), Some(temp_dir.to_string_lossy().to_string()), Some("file2.zip".into()), HashMap::new()).unwrap();
+        let snap3 = mgr.add_download("https://example.com/file3.zip".into(), Some(temp_dir.to_string_lossy().to_string()), Some("file3.zip".into()), HashMap::new()).unwrap();
+
+        // Check in-memory task list
+        let downloads = mgr.list_downloads().unwrap();
+        assert_eq!(downloads.len(), 3);
+        assert!(downloads.iter().any(|d| d.id == snap1.id));
+        assert!(downloads.iter().any(|d| d.id == snap2.id));
+        assert!(downloads.iter().any(|d| d.id == snap3.id));
+
+        // Rename task in cache + db
+        mgr.rename_task(&snap1.id, "file1_renamed.zip", None).unwrap();
+        let s1 = mgr.snapshot_of(&snap1.id).unwrap();
+        assert_eq!(s1.filename, "file1_renamed.zip");
+
+        // Remove task
+        mgr.remove(&snap2.id, false).unwrap();
+        let downloads2 = mgr.list_downloads().unwrap();
+        assert_eq!(downloads2.len(), 2);
+        assert!(!downloads2.iter().any(|d| d.id == snap2.id));
+
+        // Clear completed
+        let _ = mgr.clear_completed();
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_pause_all_and_chunk_persistence_sync() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_pause_all_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        // Add multiple downloads
+        let _snap1 = mgr.add_download("https://example.com/item1.bin".into(), Some(temp_dir.to_string_lossy().to_string()), Some("item1.bin".into()), HashMap::new()).unwrap();
+        let _snap2 = mgr.add_download("https://example.com/item2.bin".into(), Some(temp_dir.to_string_lossy().to_string()), Some("item2.bin".into()), HashMap::new()).unwrap();
+
+        // Pause all
+        mgr.pause_all();
+
+        // Verify both in-memory cache and statuses reflect Paused without promoting other tasks
+        let downloads = mgr.list_downloads().unwrap();
+        for d in downloads {
+            assert_eq!(d.status, "paused");
+        }
+
+        let db_tasks = mgr.db.list_tasks().unwrap();
+        for (t, _) in db_tasks {
+            assert_eq!(t.status, Status::Paused);
+        }
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_rapid_pause_resume_concurrency() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_rapid_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let snap = mgr
+                .add_download(
+                    format!("https://example.com/file_{i}.bin"),
+                    Some(temp_dir.to_string_lossy().to_string()),
+                    Some(format!("file_{i}.bin")),
+                    HashMap::new(),
+                )
+                .unwrap();
+            ids.push(snap.id);
+        }
+
+        // Rapidly toggle pause and resume across tasks in parallel
+        for _ in 0..10 {
+            for id in &ids {
+                let _ = mgr.pause(id);
+            }
+            let downloads = mgr.list_downloads().unwrap();
+            for d in &downloads {
+                assert!(d.status == "paused" || d.status == "completed" || d.status == "error");
+            }
+
+            for id in &ids {
+                let _ = mgr.resume(id);
+            }
+        }
+
+        mgr.pause_all();
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_edge_case_task_not_found_and_empty_rename() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_edge_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        // Non-existent ID queries should fail gracefully without panic
+        assert!(mgr.snapshot_of("non-existent-id").is_err());
+        assert_eq!(mgr.get_task_path("non-existent-id"), None);
+
+        // Rename with empty filename should be a no-op
+        let snap = mgr.add_download(
+            "https://example.com/edge.zip".into(),
+            Some(temp_dir.to_string_lossy().to_string()),
+            Some("edge.zip".into()),
+            HashMap::new(),
+        ).unwrap();
+
+        mgr.rename_task(&snap.id, "   ", None).unwrap();
+        let s = mgr.snapshot_of(&snap.id).unwrap();
+        assert_eq!(s.filename, "edge.zip");
+
+        // Rename with valid trimmed filename
+        mgr.rename_task(&snap.id, "  edge_renamed.zip  ", None).unwrap();
+        let s2 = mgr.snapshot_of(&snap.id).unwrap();
+        assert_eq!(s2.filename, "edge_renamed.zip");
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_queue_promotion_and_max_active_respect() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_queue_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        // Set max_active = 2
+        mgr.set_max_active(2);
+
+        // Add 5 tasks
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let snap = mgr.add_download(
+                format!("https://example.com/item_{i}.dat"),
+                Some(temp_dir.to_string_lossy().to_string()),
+                Some(format!("item_{i}.dat")),
+                HashMap::new(),
+            ).unwrap();
+            ids.push(snap.id);
+        }
+
+        // Check running count
+        let downloads = mgr.list_downloads().unwrap();
+        let active_count = downloads.iter().filter(|d| d.status == "downloading" || d.status == "connecting").count();
+        let queued_count = downloads.iter().filter(|d| d.status == "queued").count();
+        assert!(active_count <= 2, "Active count {active_count} exceeded max_active=2");
+        assert_eq!(active_count + queued_count, 5);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_lazy_torrent_engine_initialization_and_settings() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_lazy_torrent_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        // Verify lazy state: engine is NOT initialized on creation
+        assert!(mgr.get_torrent_engine().is_none());
+
+        // Update settings without initializing engine
+        mgr.update_torrent_settings(|s| {
+            s.max_peers = 150;
+            s.enable_dht = false;
+        });
+        let settings = mgr.get_torrent_settings();
+        assert_eq!(settings.max_peers, 150);
+        assert_eq!(settings.enable_dht, false);
+        assert!(mgr.get_torrent_engine().is_none());
+
+        // Now trigger on-demand initialization
+        let engine = mgr.ensure_torrent_engine().unwrap();
+        assert!(mgr.get_torrent_engine().is_some());
+        assert_eq!(engine.get_settings().max_peers, 150);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
 }
+
 
 

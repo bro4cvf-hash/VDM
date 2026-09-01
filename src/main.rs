@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use anyhow::Context;
 use i_slint_backend_winit::WinitWindowAccessor;
 use rfd::FileDialog;
@@ -37,6 +39,19 @@ fn logo_rgba(px: u32) -> Option<Vec<u8>> {
             .collect(),
     )
 }
+
+/// Trims physical working set memory, returning unused RAM pages to Windows memory manager
+#[cfg(target_os = "windows")]
+pub fn trim_working_set() {
+    unsafe {
+        use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        let _ = K32EmptyWorkingSet(GetCurrentProcess());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn trim_working_set() {}
 
 #[derive(Clone, Debug)]
 struct CompletedTaskInfo {
@@ -862,21 +877,12 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // close hides to tray — real quit lives in the tray menu
-    let weak_close = app.as_weak();
-    app.on_close_window(move || {
-        if let Some(app) = weak_close.upgrade() {
-            app.window().with_winit_window(|win| {
-                win.set_visible(false);
-            });
-            let _ = app.hide();
-        }
-    });
 
     let weak_min = app.as_weak();
     app.on_minimize_window(move || {
         if let Some(app) = weak_min.upgrade() {
             app.window().set_minimized(true);
+            trim_working_set();
         }
     });
 
@@ -1168,6 +1174,13 @@ fn main() -> anyhow::Result<()> {
     settings.set_max_connections(init_max_conns);
     settings.set_max_active(init_max_active);
     settings.set_start_at_startup(engine::startup::is_startup_enabled());
+
+    let close_action = manager
+        .db
+        .get_kv("close_action")
+        .unwrap_or_else(|| "tray".into());
+    let close_action_val = Arc::new(Mutex::new(close_action.clone()));
+    settings.set_close_action(close_action.into());
 
     let torrent_down_mbps = manager.db
         .get_kv("torrent_down_limit")
@@ -1727,6 +1740,18 @@ fn main() -> anyhow::Result<()> {
         engine::startup::open_windows_startup_settings();
     });
 
+    let m_close_act = manager.clone();
+    let close_act_store = close_action_val.clone();
+    let weak_settings_close_act = settings.as_weak();
+    settings.on_set_close_action(move |action| {
+        let act_str: String = action.into();
+        *close_act_store.lock().unwrap() = act_str.clone();
+        let _ = m_close_act.db.set_kv("close_action", &act_str);
+        if let Some(s) = weak_settings_close_act.upgrade() {
+            s.set_close_action(act_str.into());
+        }
+    });
+
     let m = manager.clone();
     let weak_app_sync = app.as_weak();
     settings.on_set_max_active(move |n| {
@@ -1757,49 +1782,49 @@ fn main() -> anyhow::Result<()> {
 
     let m_t_down = manager.clone();
     settings.on_set_torrent_down_limit(move |mbps| {
-        let mut cur = m_t_down.torrent.get_settings();
-        cur.max_download_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
-        m_t_down.torrent.update_settings(cur);
+        m_t_down.update_torrent_settings(|cur| {
+            cur.max_download_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
+        });
         let _ = m_t_down.db.set_kv("torrent_down_limit", &mbps.to_string());
     });
 
     let m_t_up = manager.clone();
     settings.on_set_torrent_up_limit(move |mbps| {
-        let mut cur = m_t_up.torrent.get_settings();
-        cur.max_upload_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
-        m_t_up.torrent.update_settings(cur);
+        m_t_up.update_torrent_settings(|cur| {
+            cur.max_upload_bps = if mbps <= 0.01 { 0 } else { (mbps as f64 * 1024.0 * 1024.0) as u64 };
+        });
         let _ = m_t_up.db.set_kv("torrent_up_limit", &mbps.to_string());
     });
 
     let m_t_peers = manager.clone();
     settings.on_set_torrent_max_peers(move |n| {
-        let mut cur = m_t_peers.torrent.get_settings();
-        cur.max_peers = (n as usize).clamp(10, 500);
-        m_t_peers.torrent.update_settings(cur);
+        m_t_peers.update_torrent_settings(|cur| {
+            cur.max_peers = (n as usize).clamp(10, 500);
+        });
         let _ = m_t_peers.db.set_kv("torrent_max_peers", &n.to_string());
     });
 
     let m_t_dht = manager.clone();
     settings.on_set_torrent_dht_enabled(move |val| {
-        let mut cur = m_t_dht.torrent.get_settings();
-        cur.enable_dht = val;
-        m_t_dht.torrent.update_settings(cur);
+        m_t_dht.update_torrent_settings(|cur| {
+            cur.enable_dht = val;
+        });
         let _ = m_t_dht.db.set_kv("torrent_dht", if val { "1" } else { "0" });
     });
 
     let m_t_pex = manager.clone();
     settings.on_set_torrent_pex_enabled(move |val| {
-        let mut cur = m_t_pex.torrent.get_settings();
-        cur.enable_pex = val;
-        m_t_pex.torrent.update_settings(cur);
+        m_t_pex.update_torrent_settings(|cur| {
+            cur.enable_pex = val;
+        });
         let _ = m_t_pex.db.set_kv("torrent_pex", if val { "1" } else { "0" });
     });
 
     let m_t_trackers = manager.clone();
     settings.on_set_torrent_auto_trackers(move |val| {
-        let mut cur = m_t_trackers.torrent.get_settings();
-        cur.enable_auto_trackers = val;
-        m_t_trackers.torrent.update_settings(cur);
+        m_t_trackers.update_torrent_settings(|cur| {
+            cur.enable_auto_trackers = val;
+        });
         let _ = m_t_trackers.db.set_kv("torrent_auto_trackers", if val { "1" } else { "0" });
     });
 
@@ -1835,6 +1860,9 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // ── Shutdown state fence ──
+    let is_shutting_down = Arc::new(AtomicBool::new(false));
+
     // ── Local Loopback Server (:9191) for Browser Extension ──
     let (download_tx, mut download_rx) = tokio::sync::mpsc::unbounded_channel::<engine::server::ServerEvent>();
     let loopback_server = Arc::new(engine::server::LoopbackServer::new(
@@ -1854,9 +1882,13 @@ fn main() -> anyhow::Result<()> {
     let m_server = manager.clone();
     let weak_settings_state = settings.as_weak();
     let progress_reg_server = progress_registry.clone();
+    let is_shutting_down_events = is_shutting_down.clone();
 
     tokio::spawn(async move {
         while let Some(event) = download_rx.recv().await {
+            if is_shutting_down_events.load(Ordering::Relaxed) {
+                break;
+            }
             let wi = weak_info_server.clone();
             let wt = weak_torrent_server.clone();
             let wa = weak_app_server.clone();
@@ -1867,8 +1899,12 @@ fn main() -> anyhow::Result<()> {
             let m = m_server.clone();
             let ps = pending_payloads_server.clone();
             let p_reg = progress_reg_server.clone();
+            let is_shutting_down_ev = is_shutting_down_events.clone();
 
             let _ = slint::invoke_from_event_loop(move || {
+                if is_shutting_down_ev.load(Ordering::Relaxed) {
+                    return;
+                }
                 match event {
                     engine::server::ServerEvent::ShowWindow => {
                         if let Some(a) = wa.upgrade() {
@@ -2060,9 +2096,13 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let is_shutting_down_tray = is_shutting_down.clone();
     std::thread::spawn(move || {
         let rx = tray_icon::TrayIconEvent::receiver();
         while let Ok(ev) = rx.recv() {
+            if is_shutting_down_tray.load(Ordering::Relaxed) {
+                break;
+            }
             match ev {
                 tray_icon::TrayIconEvent::Click {
                     button: tray_icon::MouseButton::Left,
@@ -2074,7 +2114,11 @@ fn main() -> anyhow::Result<()> {
                     let wa = ev_app.clone();
                     let wm = ev_menu.clone();
                     let mg = menu_gen_tray.clone();
+                    let is_sd_click = is_shutting_down_tray.clone();
                     let _ = slint::invoke_from_event_loop(move || {
+                        if is_sd_click.load(Ordering::Relaxed) {
+                            return;
+                        }
                         close_menu_later(wm, &mg);
                         if let Some(a) = wa.upgrade() {
                             a.window().with_winit_window(|win| {
@@ -2095,7 +2139,11 @@ fn main() -> anyhow::Result<()> {
                     let wa = ev_app.clone();
                     let wm = ev_menu.clone();
                     let mg = menu_gen_tray.clone();
+                    let is_sd_rclick = is_shutting_down_tray.clone();
                     let _ = slint::invoke_from_event_loop(move || {
+                        if is_sd_rclick.load(Ordering::Relaxed) {
+                            return;
+                        }
                         if let Some(mm) = wm.upgrade() {
                             // If already open, toggle close
                             if mm.get_open() {
@@ -2127,10 +2175,15 @@ fn main() -> anyhow::Result<()> {
                             // Watch for clicks outside the tray menu or Escape key to dismiss it automatically
                             let wm_poll = wm.clone();
                             let mg_poll = mg.clone();
+                            let is_sd_watch = is_sd_rclick.clone();
                             std::thread::spawn(move || {
                                 let start = std::time::Instant::now();
                                 loop {
                                     std::thread::sleep(Duration::from_millis(25));
+
+                                    if is_sd_watch.load(Ordering::Relaxed) {
+                                        break;
+                                    }
 
                                     // Terminate if the menu has been closed or re-opened
                                     if mg_poll.load(std::sync::atomic::Ordering::SeqCst) != gen {
@@ -2189,8 +2242,8 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    let weak_menu = menu.as_weak();
-    let weak_app = app.as_weak();
+    let weak_menu_quit = menu.as_weak();
+    let weak_app_quit = app.as_weak();
     let weak_info_quit = info.as_weak();
     let weak_torrent_quit = torrent_dialog.as_weak();
     let weak_renew_quit = renew_dialog.as_weak();
@@ -2202,7 +2255,116 @@ fn main() -> anyhow::Result<()> {
     let act_shutdown_quit = countdown_active.clone();
     let progress_reg_menu = progress_registry.clone();
     let m = manager.clone();
+
+    let is_shutting_down_action = is_shutting_down.clone();
+    let perform_graceful_shutdown = Arc::new(move || {
+        if is_shutting_down_action.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        // 1. Anti-hang watchdog FIRST: guarantees process termination within 900ms-1000ms
+        // no matter what happens in OS drivers, networking, or file I/O subsystems
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(900));
+            std::process::exit(0);
+        });
+
+        // 2. Hide all open windows immediately on the UI thread
+        let mm_w = weak_menu_quit.clone();
+        let a_w = weak_app_quit.clone();
+        let inf_w = weak_info_quit.clone();
+        let td_w = weak_torrent_quit.clone();
+        let rd_w = weak_renew_quit.clone();
+        let dd_w = weak_dup_quit.clone();
+        let pill_w = weak_pill_quit.clone();
+        let dn_w = weak_done_quit.clone();
+        let st_w = weak_settings_quit.clone();
+        let sd_w = weak_shutdown_quit.clone();
+        let prog_reg_w = progress_reg_menu.clone();
+
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(mm) = mm_w.upgrade() { let _ = mm.hide(); }
+            if let Some(a) = a_w.upgrade() { let _ = a.hide(); }
+            if let Some(inf) = inf_w.upgrade() { let _ = inf.hide(); }
+            if let Some(td) = td_w.upgrade() { let _ = td.hide(); }
+            if let Some(rd) = rd_w.upgrade() { let _ = rd.hide(); }
+            if let Some(dd) = dd_w.upgrade() { let _ = dd.hide(); }
+            if let Some(pill) = pill_w.upgrade() { let _ = pill.hide(); }
+            if let Some(dn) = dn_w.upgrade() { let _ = dn.hide(); }
+            if let Some(st) = st_w.upgrade() { let _ = st.hide(); }
+            if let Some(sd) = sd_w.upgrade() { let _ = sd.hide(); }
+            for (_, weak_p) in prog_reg_w.dialogs.lock().unwrap().drain() {
+                if let Some(p) = weak_p.upgrade() {
+                    let _ = p.hide();
+                }
+            }
+        });
+
+        abort_shutdown_countdown(&weak_shutdown_quit, &act_shutdown_quit);
+
+        // 3. Pause all downloads cleanly (synchronously persists all chunk progress to DB and in-memory cache)
+        m.pause_all();
+
+        // 4. Grace period (100ms) to allow OS file buffers to flush and network sockets to release
+        std::thread::sleep(Duration::from_millis(100));
+
+        // 5. Quit Slint event loop
+        let _ = slint::quit_event_loop();
+
+        // 6. Clean exit (immediately releases all file locks, handles, sockets, and resources)
+        std::process::exit(0);
+    });
+
+    let weak_app_close = app.as_weak();
+    let close_act_for_win = close_action_val.clone();
+    let shutdown_for_win = perform_graceful_shutdown.clone();
+    app.on_close_window(move || {
+        let act = close_act_for_win.lock().unwrap().clone();
+        if act == "tray" {
+            if let Some(a) = weak_app_close.upgrade() {
+                a.window().with_winit_window(|win| {
+                    win.set_visible(false);
+                });
+                let _ = a.hide();
+                trim_working_set();
+            }
+        } else {
+            shutdown_for_win();
+        }
+    });
+
+    let weak_app_req = app.as_weak();
+    let close_act_for_req = close_action_val.clone();
+    let shutdown_for_req = perform_graceful_shutdown.clone();
+    app.window().on_close_requested(move || {
+        let act = close_act_for_req.lock().unwrap().clone();
+        if act == "tray" {
+            if let Some(a) = weak_app_req.upgrade() {
+                a.window().with_winit_window(|win| {
+                    win.set_visible(false);
+                });
+                let _ = a.hide();
+                trim_working_set();
+            }
+            slint::CloseRequestResponse::HideWindow
+        } else {
+            shutdown_for_req();
+            slint::CloseRequestResponse::HideWindow
+        }
+    });
+
+    let shutdown_for_ctrlc = perform_graceful_shutdown.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            shutdown_for_ctrlc();
+        }
+    });
+
+    let weak_menu = menu.as_weak();
+    let weak_app = app.as_weak();
+    let shutdown_for_tray = perform_graceful_shutdown.clone();
     let menu_gen_item = menu_gen.clone();
+    let m = manager.clone();
     menu.on_item(move |what| {
         let what: String = what.into();
         match what.as_str() {
@@ -2227,49 +2389,7 @@ fn main() -> anyhow::Result<()> {
                 m.resume_all();
             }
             "quit" => {
-                // 1. Hide all open windows immediately so no ghost/unpumped HWNDs remain
-                if let Some(mm) = weak_menu.upgrade() {
-                    let _ = mm.hide();
-                }
-                if let Some(a) = weak_app.upgrade() {
-                    let _ = a.hide();
-                }
-                if let Some(inf) = weak_info_quit.upgrade() {
-                    let _ = inf.hide();
-                }
-                if let Some(td) = weak_torrent_quit.upgrade() {
-                    let _ = td.hide();
-                }
-                if let Some(rd) = weak_renew_quit.upgrade() {
-                    let _ = rd.hide();
-                }
-                if let Some(dd) = weak_dup_quit.upgrade() {
-                    let _ = dd.hide();
-                }
-                if let Some(pill) = weak_pill_quit.upgrade() {
-                    let _ = pill.hide();
-                }
-                if let Some(dn) = weak_done_quit.upgrade() {
-                    let _ = dn.hide();
-                }
-                if let Some(st) = weak_settings_quit.upgrade() {
-                    let _ = st.hide();
-                }
-                if let Some(sd) = weak_shutdown_quit.upgrade() {
-                    let _ = sd.hide();
-                }
-                abort_shutdown_countdown(&weak_shutdown_quit, &act_shutdown_quit);
-                for (_, weak_p) in progress_reg_menu.dialogs.lock().unwrap().drain() {
-                    if let Some(p) = weak_p.upgrade() {
-                        let _ = p.hide();
-                    }
-                }
-
-                // 2. Pause and persist all tasks cleanly
-                m.pause_all();
-
-                // 3. Clean and immediate process exit (terminates all background threads without hanging)
-                std::process::exit(0);
+                shutdown_for_tray();
             }
             _ => {
                 close_menu_later(weak_menu.clone(), &menu_gen_item);
@@ -2403,9 +2523,12 @@ fn main() -> anyhow::Result<()> {
         });
 
         let weak_dialog = torrent_dialog.as_weak();
-        let t_engine = manager.torrent();
+        let m_torrent = manager.clone();
         tokio::spawn(async move {
-            let res = t_engine.fetch_torrent_files(&magnet_url).await;
+            let res = match m_torrent.ensure_torrent_engine_async().await {
+                Ok(t_engine) => t_engine.fetch_torrent_files(&magnet_url).await,
+                Err(e) => Err(e),
+            };
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(d) = weak_dialog.upgrade() {
                     match res {
@@ -2892,9 +3015,13 @@ fn main() -> anyhow::Result<()> {
     let countdown_active_poll = countdown_active.clone();
     let countdown_seconds_poll = countdown_seconds.clone();
     let had_active_downloads_in_session_poll = had_active_downloads_in_session.clone();
+    let is_shutting_down_poller = is_shutting_down.clone();
 
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(250));
+        if is_shutting_down_poller.load(Ordering::Relaxed) {
+            break;
+        }
         let snaps = manager_cloned_for_poll.list_downloads().unwrap_or_default();
 
         let busy = snaps.iter().any(|s| matches!(s.status.as_str(), "downloading" | "connecting" | "queued" | "processing"));
@@ -2983,7 +3110,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(s) = snaps.iter().find(|x| x.id == tid) {
                 let is_torrent = s.url.starts_with("magnet:?");
                 let t_stats = if is_torrent {
-                    manager_cloned_for_poll.torrent.get_stats(&s.id)
+                    manager_cloned_for_poll.get_torrent_engine().and_then(|t| t.get_stats(&s.id))
                 } else {
                     None
                 };
@@ -3335,6 +3462,7 @@ fn main() -> anyhow::Result<()> {
         app.show().context("show window")?;
     } else {
         println!("[VDM] Started silently in background / system tray via startup.");
+        trim_working_set();
     }
     // run until explicit quit (close hides to tray; the tray outlives hidden windows)
     slint::run_event_loop_until_quit().context("slint run")?;

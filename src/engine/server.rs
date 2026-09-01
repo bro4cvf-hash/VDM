@@ -9,12 +9,38 @@ pub const DEFAULT_SERVER_PORT: u16 = 9191;
 /// browsers always send Origin on POST; extension workers send chrome-extension://
 /// or none. A plain web page's origin (CSRF / DNS-rebinding) is rejected.
 fn origin_allowed(origin: &str) -> bool {
-    origin.is_empty()
-        || origin.starts_with("chrome-extension://")
+    if origin.is_empty() {
+        return true;
+    }
+    if origin.starts_with("chrome-extension://")
         || origin.starts_with("moz-extension://")
         || origin.starts_with("safari-extension://")
-        || origin.starts_with("http://localhost")
-        || origin.starts_with("http://127.0.0.1")
+    {
+        return true;
+    }
+
+    if let Ok(url) = reqwest::Url::parse(origin) {
+        if let Some(host) = url.host_str() {
+            if host == "localhost" || host == "127.0.0.1" {
+                return true;
+            }
+        }
+    } else {
+        let trimmed = origin.trim_end_matches('/');
+        if trimmed == "http://localhost"
+            || trimmed.starts_with("http://localhost:")
+            || trimmed == "https://localhost"
+            || trimmed.starts_with("https://localhost:")
+            || trimmed == "http://127.0.0.1"
+            || trimmed.starts_with("http://127.0.0.1:")
+            || trimmed == "https://127.0.0.1"
+            || trimmed.starts_with("https://127.0.0.1:")
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -275,3 +301,160 @@ impl LoopbackServer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    #[test]
+    fn test_origin_allowed_filtering() {
+        assert!(origin_allowed(""));
+        assert!(origin_allowed("chrome-extension://abcdefghijklmnop"));
+        assert!(origin_allowed("moz-extension://1234-5678-90ab"));
+        assert!(origin_allowed("safari-extension://some-id"));
+        assert!(origin_allowed("http://localhost:8080"));
+        assert!(origin_allowed("http://127.0.0.1:9191"));
+
+        assert!(!origin_allowed("http://evil.com"));
+        assert!(!origin_allowed("https://phishing.site"));
+        assert!(!origin_allowed("http://localhost.evil.com"));
+        assert!(!origin_allowed("http://127.0.0.1.attacker.com"));
+    }
+
+    #[tokio::test]
+    async fn test_loopback_server_endpoints_and_single_instance() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ServerEvent>();
+        // Use an ephemeral test port
+        let test_port = 19191;
+        let server = Arc::new(LoopbackServer::new(test_port, tx));
+
+        tokio::spawn(async move {
+            server.run().await;
+        });
+
+        // Wait for server to bind
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // 1. Test GET /health
+        {
+            let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+            stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+            let mut resp = String::new();
+            stream.read_to_string(&mut resp).await.unwrap();
+            assert!(resp.contains("HTTP/1.1 200 OK"));
+            assert!(resp.contains("\"status\":\"ok\""));
+        }
+
+        // 2. Test GET /show (single-instance wake signal)
+        {
+            let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+            stream.write_all(b"GET /show HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+            let mut resp = String::new();
+            stream.read_to_string(&mut resp).await.unwrap();
+            assert!(resp.contains("HTTP/1.1 200 OK"));
+            assert!(resp.contains("Window shown"));
+
+            let received = rx.recv().await.unwrap();
+            match received {
+                ServerEvent::ShowWindow => {}
+                _ => panic!("Expected ShowWindow event"),
+            }
+        }
+
+        // 3. Test POST /add-download with valid origin
+        {
+            let payload = serde_json::json!({
+                "url": "https://example.com/testfile.iso",
+                "fileName": "testfile.iso",
+                "fileSize": 1048576,
+                "referer": "https://example.com/download",
+                "cookies": "sess=123"
+            });
+            let body = payload.to_string();
+            let req = format!(
+                "POST /add-download HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: chrome-extension://testextensionid\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+
+            let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+            stream.write_all(req.as_bytes()).await.unwrap();
+            let mut resp = String::new();
+            stream.read_to_string(&mut resp).await.unwrap();
+            assert!(resp.contains("HTTP/1.1 200 OK"));
+            assert!(resp.contains("\"success\":true"));
+
+            let received = rx.recv().await.unwrap();
+            match received {
+                ServerEvent::AddDownload(p) => {
+                    assert_eq!(p.url, "https://example.com/testfile.iso");
+                    assert_eq!(p.filename, "testfile.iso");
+                    assert_eq!(p.file_size, Some(1048576));
+                    assert_eq!(p.referrer, "https://example.com/download");
+                    assert_eq!(p.cookies, "sess=123");
+                }
+                _ => panic!("Expected AddDownload event"),
+            }
+        }
+
+        // 4. Test POST /add-download with unauthorized / CSRF origin
+        {
+            let payload = serde_json::json!({
+                "url": "https://example.com/evil.exe",
+                "fileName": "evil.exe"
+            });
+            let body = payload.to_string();
+            let req = format!(
+                "POST /add-download HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://evil-attacker.com\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+
+            let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+            stream.write_all(req.as_bytes()).await.unwrap();
+            let mut resp = String::new();
+            stream.read_to_string(&mut resp).await.unwrap();
+            assert!(resp.contains("HTTP/1.1 403 Forbidden"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rapid_concurrent_secondary_instance_calls() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ServerEvent>();
+        let test_port = 19192;
+        let server = Arc::new(LoopbackServer::new(test_port, tx));
+
+        tokio::spawn(async move {
+            server.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let mut join_set = tokio::task::JoinSet::new();
+        for _ in 0..10 {
+            join_set.spawn(async move {
+                let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+                stream.write_all(b"GET /show HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://localhost\r\nConnection: close\r\n\r\n").await.unwrap();
+                let mut resp = String::new();
+                stream.read_to_string(&mut resp).await.unwrap();
+                assert!(resp.contains("HTTP/1.1 200 OK"));
+            });
+        }
+
+        while let Some(res) = join_set.join_next().await {
+            res.unwrap();
+        }
+
+        let mut event_count = 0;
+        while let Ok(ev) = rx.try_recv() {
+            if matches!(ev, ServerEvent::ShowWindow) {
+                event_count += 1;
+            }
+        }
+        assert_eq!(event_count, 10);
+    }
+}
+

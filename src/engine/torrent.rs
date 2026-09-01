@@ -97,7 +97,7 @@ impl TorrentEngine {
             let mut opts = SessionOptions::default();
             opts.disable_trackers = false;
             opts.fastresume = true;
-            opts.persistence = Some(librqbit::SessionPersistenceConfig::Json { folder: None });
+            opts.persistence = None;
             if dht_enabled {
                 opts.dht = Some(librqbit::DhtSessionConfig::default());
             } else {
@@ -131,6 +131,7 @@ impl TorrentEngine {
         *s = new_settings;
     }
 
+    #[allow(dead_code)]
     pub fn get_settings(&self) -> TorrentSettings {
         self.settings.lock().unwrap().clone()
     }

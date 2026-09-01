@@ -42,7 +42,7 @@ Whenever executing tasks in this codebase, evaluate and leverage specialized ski
 - **Borderless Aesthetic & Reactive Multi-Theme System (`Palette`)**:
   - All components, views, dialogs, and controls must consume colors exclusively from `Palette.<token>` in `ui/theme.slint` (`Palette.base-bg`, `Palette.card-bg`, `Palette.surface-bg`, `Palette.input-bg`, `Palette.border-color`, `Palette.accent`, `Palette.text-primary`, `Palette.text-secondary`, etc.).
   - Never hardcode `#1E1E1E` or `#FFFFFF` in views/dialogs.
-  - Slint's `export global Palette` computes tokens reactively in $O(1)$ time based on `active-theme: int` (`0` = Dark, `1` = Light, `2` = Dark Purple, `3` = Ocean Slate).
+  - Slint's `export global Palette` computes tokens reactively in $O(1)$ time based on `active-theme: int` (`0` = Dark, `1` = Light, `2` = Dark Purple, `3` = Ocean Slate, `4` = OLED Black).
   - Theme switching updates all open windows instantly without recreating widgets or causing layout lag.
 - **Strict Uniform Linear Alignment**:
   - All repeated rows (sidebar items, table rows, settings items, torrent file rows) must share identical column widths, padding, and alignment properties:
@@ -82,7 +82,34 @@ Whenever executing tasks in this codebase, evaluate and leverage specialized ski
 - **Session-Scoped Execution**: Only trigger post-download shutdown if an active download in the current session transitions from running to complete, never because completed tasks exist in historical SQLite rows.
 - **Dialog Dismissal Cleanup**: When progress dialogs are closed or cancelled, verify if any other active dialog has shutdown enabled; if not, automatically disarm `SHUTDOWN_ARMED`.
 
-## 6. Rust Release Build & Verification
+## 6. Zero Idle Disk I/O & In-Memory State Caching
+- **Zero Idle Disk I/O Invariant**:
+  - The UI runs periodic diffing timers (250ms UI poller) to refresh download speeds, ETA, and progress.
+  - Never execute SQLite read queries (e.g. `SELECT * FROM tasks` or `SELECT * FROM chunks`) inside recurring UI pollers.
+  - Maintain an in-memory task state cache (`tasks: Mutex<Vec<CachedTask>>`) initialized once upon startup.
+  - `Manager::list_downloads`, `snapshot_of`, and `get_task_path` must read exclusively from in-memory task state and live runtimes, guaranteeing 0 B/s disk I/O when idle.
+  - SQLite writes only occur during state transitions (e.g., download created, paused, resumed, completed, errored) or 256 KB worker chunk checkpoints.
+  - Set `librqbit::SessionOptions.persistence = None` to prevent background BitTorrent session json files from being continuously touched on disk.
+
+## 7. Responsive Window Close, Anti-Hang Teardown & Loopback Security
+- **Configurable Close Action**:
+  - General Settings provides a choice: "Exit VDM completely" (`"exit"`, default) vs "Minimize to System Tray" (`"tray"`).
+  - Stored in SQLite `kv` table under key `"close_action"`.
+  - Both Slint caption buttons (`on_close_window`) and native OS close events (`Alt+F4` / taskbar close via `window().on_close_requested`) must route through the configured `close_action`.
+- **Graceful Shutdown & Watchdog Teardown Invariants**:
+  - Maintain an atomic `is_shutting_down: Arc<AtomicBool>` test-and-set fence across all background loops (`download_rx`, `tray_icon` pump, 250ms poller).
+  - On exit (via window close, tray "Quit", or Ctrl+C):
+    1. Arm a 900ms hard watchdog thread FIRST (`std::thread::spawn(|| { sleep(900ms); exit(0); })`) to guarantee process termination within 1 second even if OS file locks or drivers stall.
+    2. Immediately hide all UI windows and dialogs on the UI thread via `slint::invoke_from_event_loop` to prevent visual lag or ghost HWNDs.
+    3. Abort any active shutdown countdown timers.
+    4. Call `manager.pause_all()` to synchronously persist chunk progress.
+    5. Call `slint::quit_event_loop()`.
+    6. Execute `std::process::exit(0)` to cleanly release all file locks, handles, sockets, and resources.
+- **Strict Loopback Origin Security**:
+  - Loopback server on `127.0.0.1:9191` strictly permits `chrome-extension://`, `moz-extension://`, `safari-extension://`, and exact `localhost` / `127.0.0.1` origins.
+  - Subdomains (such as `http://localhost.evil.com`) are rejected with 403 Forbidden to prevent CSRF/DNS-rebinding attacks.
+
+## 8. Rust Release Build & Verification
 - After every Rust source modification, execute:
   ```powershell
   cargo build --release
@@ -90,7 +117,7 @@ Whenever executing tasks in this codebase, evaluate and leverage specialized ski
 - **No-Polling Rule**: Do NOT poll or check `manage_task(Action='status')` in a loop while waiting for compilation. Release builds take several minutes. Launch the background command, update the user that the build has been dispatched, and immediately end the turn. The messaging system will wake the agent reactively upon completion.
 - Verify that compilation succeeds with zero errors and zero warnings, producing a valid `target\release\vdm.exe`.
 
-## 6. Autonomous Skill & Modular Documentation Evolution
+## 9. Autonomous Skill & Modular Documentation Evolution
 - Whenever you discover a non-obvious bug fix, an undocumented Slint layout quirk, a new database index optimization, or an engine edge case during pair programming:
   1. Immediately update this skill (`SKILL.md`) or relevant specialized skills with the new solution.
   2. Update [PROJECT.md](file:///g:/AI/VDM/PROJECT.md) to preserve the new knowledge across future sessions.

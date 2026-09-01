@@ -300,6 +300,7 @@ impl Db {
     }
 
     /// single-row fetch (row + chunks) — replaces full `list_tasks()` scans by id
+    #[allow(dead_code)]
     pub fn get_task(&self, id: &str) -> rusqlite::Result<Option<(TaskRow, Vec<ChunkRow>)>> {
         let c = self.conn.lock().unwrap();
         let row = c
@@ -342,6 +343,7 @@ impl Db {
         Ok(Some((t, cs)))
     }
 
+    #[allow(dead_code)]
     pub fn get_task_total(&self, id: &str) -> i64 {
         self.conn
             .lock()
@@ -351,6 +353,7 @@ impl Db {
     }
 
     /// FIFO queued ids (oldest first) — caller filters against live in-memory statuses
+    #[allow(dead_code)]
     pub fn queued_ids(&self) -> Vec<String> {
         self.conn
             .lock()

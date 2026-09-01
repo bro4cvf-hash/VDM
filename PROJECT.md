@@ -114,9 +114,19 @@ Tasks traverse the following explicit lifecycle states:
     * If a fast worker completes its byte range while other workers are still downloading large ranges, the idle worker identifies the chunk with the largest remaining byte delta.
     * It splits that chunk's remaining range in half, claims the second half, and spawns a new sub-connection to maximize bandwidth utilization.
     * Adaptive splitting is capped at 128 cells; without this ceiling, large downloads can grow toward one cell per 1 MiB and amplify SQLite rewrites, snapshots, and UI work until the host becomes unresponsive.
-4. **State Persistence**:
-   * Chunk progress is periodically committed to SQLite (`storage/database.rs`).
-   * On application restart or crash recovery, VDM inspects `chunks` rows to resume downloading from the exact byte position.
+4. **In-Memory State Caching & Zero Idle Disk I/O**:
+   * To achieve genuine 0 B/s disk I/O when idle, `Manager` maintains an in-memory task cache (`tasks: Mutex<Vec<CachedTask>>`).
+   * Read operations (`list_downloads`, `snapshot_of`, `get_task_path`, `oldest_queued`) read directly from memory and live runtimes without executing SQLite queries.
+   * SQLite is written to strictly upon task state transitions (e.g. queue, pause, resume, completion, error) and 256 KB worker chunk persistence checkpoints.
+   * librqbit session persistence is disabled (`opts.persistence = None`) to prevent background disk writes when idle.
+5. **Window Close & Exit Lifecycle**:
+   * Configurable close action in General Settings: `"tray"` (default: Minimize to system tray) or `"exit"` (Exit VDM completely).
+   * Intercepts both Slint in-app close callbacks (`on_close_window`) and native OS close events (`Alt+F4`, Taskbar close via `on_close_requested`).
+   * Graceful shutdown arms an anti-hang 900ms watchdog thread FIRST, hides all open windows on the UI thread, flushes state to SQLite, quits the Slint event loop, and cleanly exits within 1 second.
+   * State shutdown fences (`is_shutting_down`) prevent secondary instances or poller callbacks from resurrecting UI during teardown.
+6. **Memory Optimization (Lazy BitTorrent & Working Set Trimming)**:
+   * **Lazy BitTorrent Engine**: `TorrentEngine` (`librqbit`) is lazily initialized on demand (`ensure_torrent_engine` / `ensure_torrent_engine_async`) only when a magnet link or `.torrent` file is probed or started. Normal HTTP downloads consume 0 MB of BitTorrent overhead.
+   * **Minimize-to-Tray Working Set Trimming**: When VDM is minimized or hidden to the system tray, native Win32 `K32EmptyWorkingSet` is invoked to flush unreferenced physical pages back to the Windows Memory Manager, reducing idle RAM footprint to ~15–25 MB.
 
 ### B. yt-dlp & Audio/Video Muxing Engine (`src/engine/ytdl.rs`)
 * Detects YouTube / video platform URLs.
@@ -130,10 +140,11 @@ Tasks traverse the following explicit lifecycle states:
 
 ### D. Loopback Server (`src/engine/server.rs`)
 * Runs an async TCP listener on `127.0.0.1:9191`.
-* **Security**: Enforces strict origin filtering (only `chrome-extension://`, `moz-extension://`, `safari-extension://`, `http://localhost`, and `http://127.0.0.1` are permitted; arbitrary web origins are blocked to prevent CSRF/DNS-rebinding).
+* **Security**: Enforces strict origin filtering (only `chrome-extension://`, `moz-extension://`, `safari-extension://`, and exact parsed `localhost` / `127.0.0.1` hostnames are permitted; arbitrary web origins and subdomain spoofing such as `localhost.evil.com` are rejected with 403 Forbidden).
 * **Endpoints**:
-  * `POST /download`: Receives `DownloadPayload` (`url`, `filename`, `referrer`, `cookies`, `user_agent`, `file_size`) from browser extensions.
-  * `GET /ping` or single-instance call: Brings the existing VDM window to the foreground and focuses it.
+  * `POST /add-download`: Receives `DownloadPayload` (`url`, `filename`, `referrer`, `cookies`, `user_agent`, `file_size`) from browser extensions.
+  * `GET /show` or `GET /open`: Single-instance wake handler that brings the existing VDM window to the foreground and unminimizes/focuses it.
+  * `GET /health` or `GET /status`: Server heartbeat endpoint.
 
 ---
 
@@ -178,25 +189,29 @@ CREATE TABLE IF NOT EXISTS kv (
 ## 5. Slint UI Architecture & Apple HIG Design System
 
 ### A. Reactive Multi-Theme System (`ui/theme.slint` & `Palette` Global)
-VDM features a unified, GPU-accelerated 4-theme palette engine powered by Slint's `export global Palette` reactive dependency graph ($O(1)$ switching time, zero layout recalculations):
-* **0: Dark (Default macOS Sonoma)**:
-  * Canvas: `#1E1E1E` | Elevated / Surface: `#28282A` | Cards / Header: `#2C2C2E`
+VDM features a unified, GPU-accelerated 5-theme palette engine powered by Slint's `export global Palette` reactive dependency graph ($O(1)$ switching time, zero layout recalculations):
+* **0: Dark (Default macOS Sonoma Charcoal)**:
+  * Canvas: `#1E1E1E` | Elevated / Surface: `#242426` | Cards / Header: `#18181A`
   * Accent: `#0A84FF` | Accent Glow: `#0A84FF20` | Light Accent: `#64D2FF`
-  * Text: `#F5F5F7` (Primary) | `#98989D` (Secondary) | `#636366` (Tertiary)
+  * Text: `#FFFFFF` (Primary) | `#98989D` (Secondary) | `#7C7C80` (Tertiary)
+* **4: OLED Black (Pitch Black / Deep Obsidian)**:
+  * Canvas: `#000000` | Elevated / Surface: `#0D0D0E` | Cards / Header: `#050506`
+  * Accent: `#0A84FF` | Accent Glow: `#0A84FF1A` | Light Accent: `#60A5FA`
+  * Text: `#FFFFFF` (Primary) | `#9E9EA8` (Secondary) | `#6E6E78` (Tertiary)
 * **1: Light (Apple Clean White)**:
   * Canvas: `#F2F2F7` | Elevated / Surface: `#FFFFFF` | Cards / Header: `#E5E5EA`
-  * Accent: `#007AFF` | Accent Glow: `#007AFF18` | Light Accent: `#007AFF`
+  * Accent: `#007AFF` | Accent Glow: `#007AFF18` | Light Accent: `#0071A4`
   * Text: `#1C1C1E` (Primary) | `#48484A` (Secondary) | `#8E8E93` (Tertiary)
 * **2: Dark Purple (Midnight Violet)**:
-  * Canvas: `#161022` | Elevated / Surface: `#201731` | Cards / Header: `#2B1F42`
-  * Accent: `#AF52DE` | Accent Glow: `#AF52DE25` | Light Accent: `#D070FF`
-  * Text: `#F8FAFC` (Primary) | `#B8B2C8` (Secondary) | `#7E7790` (Tertiary)
+  * Canvas: `#161022` | Elevated / Surface: `#201731` | Cards / Header: `#1C142B`
+  * Accent: `#AF52DE` | Accent Glow: `#AF52DE25` | Light Accent: `#DA8FFF`
+  * Text: `#F9F5FF` (Primary) | `#B8A9D1` (Secondary) | `#8C7CA6` (Tertiary)
 * **3: Ocean Slate (Nord / Deep Marine Blue)**:
-  * Canvas: `#0B1120` | Elevated / Surface: `#151E32` | Cards / Header: `#1E293B`
+  * Canvas: `#0B1120` | Elevated / Surface: `#151E32` | Cards / Header: `#11192B`
   * Accent: `#38BDF8` | Accent Glow: `#38BDF820` | Light Accent: `#7DD3FC`
   * Text: `#F8FAFC` (Primary) | `#94A3B8` (Secondary) | `#64748B` (Tertiary)
 
-**Theme Picker**: Settings dialog (General tab) features an interactive 4-box grid of `ThemeCard` components, each rendering 5 mini color swatches (`c1..c5`), theme label, active glowing border, and checkmark. Active theme index (`0..3`) is persisted across sessions in SQLite `kv` table as `"theme"`.
+**Theme Picker**: Settings dialog (General tab) features an interactive 5-box grid of `ThemeCard` components, each rendering 5 mini color swatches (`c1..c5`), theme label, active glowing border, and checkmark. Active theme index (`0..4`) is persisted across sessions in SQLite `kv` table as `"theme"`.
 
 ### B. Modular Slint Component Architecture (Anti-Monolith Standard)
 * **Never Dump Code into Monolithic Files**: Do not continuously append UI panels, dialogs, or complex controls into `main-window.slint`.

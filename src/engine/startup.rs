@@ -33,8 +33,10 @@ pub fn set_startup_enabled(enabled: bool) -> anyhow::Result<()> {
 pub fn open_windows_startup_settings() {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         // Try opening Windows 10/11 Settings -> Apps -> Startup first
         let _ = Command::new("cmd")
+            .creation_flags(0x08000000)
             .args(["/C", "start", "ms-settings:startupapps"])
             .spawn();
     }
