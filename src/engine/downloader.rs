@@ -541,6 +541,22 @@ impl Manager {
         }
     }
 
+    /// Resume only errored tasks (one-click "Retry failed"). Returns retried count.
+    pub fn resume_errors(&self) -> usize {
+        let ids: Vec<String> = {
+            let st = self.statuses.lock().unwrap();
+            st.iter()
+                .filter(|(_, s)| matches!(**s, Status::Error))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        let n = ids.len();
+        for id in ids {
+            let _ = self.resume(&id);
+        }
+        n
+    }
+
     pub fn remove(&self, id: &str, delete_file: bool) -> anyhow::Result<()> {
         if let Some(rt) = self.runs.lock().unwrap().get(id) {
             let _ = rt.cmd_tx.send_replace(Cmd::Stop);
@@ -551,7 +567,24 @@ impl Manager {
         if delete_file {
             let tasks = self.tasks.lock().unwrap();
             if let Some(task) = tasks.iter().find(|t| t.row.id == id) {
-                fs::remove_file(Path::new(&task.row.dir).join(&task.row.filename)).ok();
+                let target_path = Path::new(&task.row.dir).join(&task.row.filename);
+                // Background retry loop to allow active workers a brief window to release Windows file locks
+                std::thread::spawn(move || {
+                    for _ in 0..10 {
+                        if target_path.is_file() {
+                            if fs::remove_file(&target_path).is_ok() || !target_path.exists() {
+                                break;
+                            }
+                        } else if target_path.is_dir() {
+                            if fs::remove_dir_all(&target_path).is_ok() || !target_path.exists() {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                });
             }
         }
         self.db.delete_task(id)?;
@@ -859,6 +892,7 @@ impl Manager {
                 t.row.status = Status::Error;
             }
             self.errors.lock().unwrap().insert(id.clone(), msg.clone());
+            #[cfg(debug_assertions)]
             eprintln!("[VDM] download {id} failed: {msg}");
         }
         self.pump();
@@ -922,6 +956,8 @@ impl Manager {
                     (video_url, yh)
                 }
                 Err(e) => {
+                    let _ = &e;
+                    #[cfg(debug_assertions)]
                     eprintln!("[VDM ytdl] URL extraction fallback: {e}");
                     (row.url.clone(), headers)
                 }
@@ -1158,7 +1194,7 @@ impl Manager {
             let guard = rt.cells.lock().unwrap();
             !guard.is_empty() && guard.iter().all(|c| c.remaining() == 0)
         };
-        let completed = !paused_seen && (known_total <= 0 || done_sum >= known_total as u64 || all_cells_done);
+        let completed = !paused_seen && ((known_total > 0 && done_sum >= known_total as u64) || all_cells_done);
 
         if completed {
             // YouTube DASH serves video-only + separate audio for most formats.
@@ -1181,14 +1217,24 @@ impl Manager {
                             Ok(()) => {
                                 fs::remove_file(&file_path).ok();
                                 if let Err(e) = fs::rename(&mux_out, &file_path) {
+                                    let _ = &e;
+                                    #[cfg(debug_assertions)]
                                     println!("[VDM] mux rename failed: {e}");
                                 }
                             }
-                            Err(e) => println!("[VDM] audio mux failed: {e}"),
+                            Err(e) => {
+                                #[cfg(debug_assertions)]
+                                println!("[VDM] audio mux failed: {e}");
+                                let _ = e;
+                            }
                         }
                         fs::remove_file(&audio_tmp).ok();
                     }
-                    Err(e) => println!("[VDM] audio fetch failed: {e}"),
+                    Err(e) => {
+                        #[cfg(debug_assertions)]
+                        println!("[VDM] audio fetch failed: {e}");
+                        let _ = e;
+                    }
                 }
                 self.post_processing.lock().unwrap().remove(id);
             }
@@ -1200,6 +1246,7 @@ impl Manager {
                     t.row.total = tot as i64;
                 }
             }
+            #[cfg(debug_assertions)]
             println!("[VDM] download complete: {}", row.filename);
         } else {
             self.db.set_status(id, Status::Paused)?;
@@ -1819,6 +1866,72 @@ mod tests {
         let engine = mgr.ensure_torrent_engine().unwrap();
         assert!(mgr.get_torrent_engine().is_some());
         assert_eq!(engine.get_settings().max_peers, 150);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_resume_all_with_error_and_paused_tasks() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_resume_err_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        let snap1 = mgr.add_download(
+            "https://example.com/p1.dat".into(),
+            Some(temp_dir.to_string_lossy().into()),
+            Some("p1.dat".into()),
+            HashMap::new(),
+        ).unwrap();
+        let snap2 = mgr.add_download(
+            "https://example.com/p2.dat".into(),
+            Some(temp_dir.to_string_lossy().into()),
+            Some("p2.dat".into()),
+            HashMap::new(),
+        ).unwrap();
+
+        mgr.pause(&snap1.id).unwrap();
+        // Artificially simulate an error status for task 2
+        mgr.statuses.lock().unwrap().insert(snap2.id.clone(), Status::Error);
+        mgr.errors.lock().unwrap().insert(snap2.id.clone(), "Connection lost".into());
+        mgr.db.set_status(&snap2.id, Status::Error).unwrap();
+
+        // Calling resume_all should resume both paused and error tasks
+        mgr.resume_all();
+
+        let s1 = mgr.statuses.lock().unwrap().get(&snap1.id).copied();
+        let s2 = mgr.statuses.lock().unwrap().get(&snap2.id).copied();
+        assert!(matches!(s1, Some(Status::Queued | Status::Downloading | Status::Connecting)));
+        assert!(matches!(s2, Some(Status::Queued | Status::Downloading | Status::Connecting)));
+        assert!(mgr.errors.lock().unwrap().get(&snap2.id).is_none());
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_remove_with_delete_file() {
+        let temp_dir = std::env::temp_dir().join(format!("vdm_test_del_file_{}", new_id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+        let mgr = Manager::new(db);
+
+        let snap = mgr.add_download(
+            "https://example.com/file_to_delete.dat".into(),
+            Some(temp_dir.to_string_lossy().into()),
+            Some("file_to_delete.dat".into()),
+            HashMap::new(),
+        ).unwrap();
+
+        let test_file = std::path::Path::new(&snap.dir).join(&snap.filename);
+        std::fs::write(&test_file, b"test content").unwrap();
+        assert!(test_file.exists());
+
+        mgr.remove(&snap.id, true).unwrap();
+        // Give the background retry thread a moment to finish deleting
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        assert!(!test_file.exists(), "Target file should have been deleted on disk");
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

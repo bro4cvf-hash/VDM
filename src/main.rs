@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow::Context;
 use i_slint_backend_winit::WinitWindowAccessor;
@@ -53,6 +53,41 @@ pub fn trim_working_set() {
 #[cfg(not(target_os = "windows"))]
 pub fn trim_working_set() {}
 
+/// Reliably opens a file using Windows ShellExecuteExW with verb "open"
+#[cfg(target_os = "windows")]
+pub fn open_file_native(path: &std::path::Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_FLAG_NO_UI};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide_path.push(0);
+    let mut wide_verb: Vec<u16> = "open\0".encode_utf16().collect();
+
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_FLAG_NO_UI;
+        info.lpVerb = wide_verb.as_mut_ptr();
+        info.lpFile = wide_path.as_ptr();
+        info.nShow = SW_SHOWNORMAL;
+
+        if ShellExecuteExW(&mut info) != 0 {
+            return true;
+        }
+    }
+
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &path.to_string_lossy()])
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn open_file_native(path: &std::path::Path) -> bool {
+    std::process::Command::new("xdg-open").arg(path).spawn().is_ok()
+}
+
 #[derive(Clone, Debug)]
 struct CompletedTaskInfo {
     id: String,
@@ -60,6 +95,23 @@ struct CompletedTaskInfo {
     total: u64,
     location: String,
     url: String,
+}
+
+static PLAY_COMPLETION_SOUND: AtomicBool = AtomicBool::new(true);
+
+#[cfg(windows)]
+extern "system" {
+    fn MessageBeep(uType: u32) -> i32;
+}
+
+pub fn play_completion_chime() {
+    if PLAY_COMPLETION_SOUND.load(Ordering::Relaxed) {
+        #[cfg(windows)]
+        unsafe {
+            // MB_ICONASTERISK = 0x00000040
+            MessageBeep(0x00000040);
+        }
+    }
 }
 
 fn show_next_completed_dialog(
@@ -73,6 +125,7 @@ fn show_next_completed_dialog(
         q.pop_front()
     };
     if let Some(item) = next {
+        play_completion_chime();
         is_showing.store(true, Ordering::Relaxed);
         dialog.set_task_id(item.id.into());
         dialog.set_filename(item.filename.clone().into());
@@ -265,9 +318,25 @@ fn abort_shutdown_countdown(
     }
 }
 
-fn get_category_folder(cat: &str) -> String {
+static DEFAULT_DOWNLOAD_DIR: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_base_download_dir(dir: String) {
+    let mut d = DEFAULT_DOWNLOAD_DIR.lock().unwrap();
+    *d = Some(dir);
+}
+
+pub fn get_base_download_dir() -> String {
+    if let Some(ref d) = *DEFAULT_DOWNLOAD_DIR.lock().unwrap() {
+        if !d.is_empty() {
+            return d.clone();
+        }
+    }
     let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".into());
-    let downloads = format!("{user_profile}\\Downloads");
+    format!("{user_profile}\\Downloads")
+}
+
+fn get_category_folder(cat: &str) -> String {
+    let downloads = get_base_download_dir();
     match cat {
         "Compressed" | "compressed" => format!("{downloads}\\Compressed"),
         "Programs" | "installer" => format!("{downloads}\\Programs"),
@@ -319,6 +388,13 @@ fn fmt_speed(bps: u64) -> String {
     } else {
         format!("{:.0} KB/s", b / KB)
     }
+}
+
+// ponytail: Slint Timer auto-hides; the false→true toggle restarts it on rapid repeats.
+fn show_toast(app: &AppWindow, msg: &str) {
+    app.set_toast_visible(false);
+    app.set_toast_text(msg.into());
+    app.set_toast_visible(true);
 }
 
 fn fmt_eta(secs: Option<u64>) -> String {
@@ -595,7 +671,9 @@ impl ProgressRegistry {
         let p = match DownloadProgressDialog::new() {
             Ok(p) => p,
             Err(e) => {
+                #[cfg(debug_assertions)]
                 eprintln!("[VDM] Failed to create DownloadProgressDialog: {:?}", e);
+                let _ = e;
                 return;
             }
         };
@@ -772,6 +850,7 @@ fn main() -> anyhow::Result<()> {
         if !is_autostart {
             use std::io::Write;
             let _ = stream.write_all(b"GET /show HTTP/1.1\r\nHost: 127.0.0.1:9191\r\nConnection: close\r\n\r\n");
+            #[cfg(debug_assertions)]
             println!("[VDM] Active instance running on :{} — brought window to front.", engine::server::DEFAULT_SERVER_PORT);
         }
         return Ok(());
@@ -1080,14 +1159,10 @@ fn main() -> anyhow::Result<()> {
 
     let m_res_sel = manager.clone();
     let selected_ids_res = selected_ids.clone();
-    let progress_reg_res_sel = progress_registry.clone();
     app.on_resume_selected(move || {
         let sel = selected_ids_res.lock().unwrap().clone();
         for id in sel {
             let _ = m_res_sel.resume(&id);
-            if let Ok(snap) = m_res_sel.snapshot_of(&id) {
-                progress_reg_res_sel.open_dialog(&snap);
-            }
         }
     });
 
@@ -1118,35 +1193,59 @@ fn main() -> anyhow::Result<()> {
     });
 
     let m = manager.clone();
+    let weak_app_pause = app.as_weak();
     app.on_pause_all(move || {
         let _ = m.pause_all();
-    });
-
-    let m = manager.clone();
-    let progress_reg_res_all = progress_registry.clone();
-    app.on_resume_all(move || {
-        let _ = m.resume_all();
-        if let Ok(snaps) = m.list_downloads() {
-            for snap in snaps {
-                if snap.status == "downloading" || snap.status == "connecting" || snap.status == "queued" {
-                    progress_reg_res_all.open_dialog(&snap);
-                }
+        if let Some(a) = weak_app_pause.upgrade() {
+            if a.get_downloading_count() + a.get_queued_count() > 0 {
+                show_toast(&a, "All downloads paused");
             }
         }
     });
 
     let m = manager.clone();
+    let weak_app_resume = app.as_weak();
+    app.on_resume_all(move || {
+        let _ = m.resume_all();
+        if let Some(a) = weak_app_resume.upgrade() {
+            if a.get_paused_count() + a.get_error_count() > 0 {
+                show_toast(&a, "Resuming all downloads");
+            }
+        }
+    });
+
+    let m = manager.clone();
+    let weak_app_retry = app.as_weak();
+    app.on_retry_failed(move || {
+        let n = m.resume_errors();
+        if n > 0 {
+            if let Some(a) = weak_app_retry.upgrade() {
+                show_toast(&a, &format!("Retrying {} failed download{}", n, if n == 1 { "" } else { "s" }));
+            }
+        }
+    });
+
+    let m = manager.clone();
+    let weak_app_clear = app.as_weak();
     app.on_clear_completed(move || {
+        let n = weak_app_clear.upgrade().map(|a| a.get_completed_count()).unwrap_or(0);
         let _ = m.clear_completed();
+        if n > 0 {
+            if let Some(a) = weak_app_clear.upgrade() {
+                show_toast(&a, &format!("Cleared {} completed download{}", n, if n == 1 { "" } else { "s" }));
+            }
+        }
     });
 
     // Folder picker + clipboard now live on the DownloadInfoDialog
 
     let selected_ids_copy = selected_ids.clone();
     let m_copy = manager.clone();
+    let weak_app_curl = app.as_weak();
     app.on_copy_url(move |single_url| {
         let url_str = String::from(single_url);
         let sel = selected_ids_copy.lock().unwrap().clone();
+        let mut toast: Option<String> = None;
         if sel.len() > 1 {
             let snaps = m_copy.list_downloads().unwrap_or_default();
             let urls: Vec<String> = snaps
@@ -1158,12 +1257,47 @@ fn main() -> anyhow::Result<()> {
                 if let Ok(mut cb) = arboard::Clipboard::new() {
                     let _ = cb.set_text(urls.join("\r\n"));
                 }
-                return;
+                let n = urls.len();
+                toast = Some(format!("{} link{} copied", n, if n == 1 { "" } else { "s" }));
             }
-        }
-        if !url_str.is_empty() {
+        } else if !url_str.is_empty() {
             if let Ok(mut cb) = arboard::Clipboard::new() {
                 let _ = cb.set_text(url_str);
+            }
+            toast = Some("Link copied to clipboard".into());
+        }
+        if let Some(msg) = toast {
+            if let Some(a) = weak_app_curl.upgrade() {
+                show_toast(&a, &msg);
+            }
+        }
+    });
+
+    let selected_ids_copy_path = selected_ids.clone();
+    let m_copy_path = manager.clone();
+    let weak_app_cpath = app.as_weak();
+    app.on_copy_file_path(move |single_id| {
+        let id_str = String::from(single_id);
+        let sel = selected_ids_copy_path.lock().unwrap().clone();
+        let mut paths: Vec<String> = Vec::new();
+        if sel.len() > 1 {
+            for id in &sel {
+                if let Some(path) = m_copy_path.get_task_path(id) {
+                    paths.push(path.to_string_lossy().to_string());
+                }
+            }
+        } else if !id_str.is_empty() {
+            if let Some(path) = m_copy_path.get_task_path(&id_str) {
+                paths.push(path.to_string_lossy().to_string());
+            }
+        }
+        if !paths.is_empty() {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_text(paths.join("\r\n"));
+            }
+            let n = paths.len();
+            if let Some(a) = weak_app_cpath.upgrade() {
+                show_toast(&a, &format!("{} file path{} copied", n, if n == 1 { "" } else { "s" }));
             }
         }
     });
@@ -1213,6 +1347,28 @@ fn main() -> anyhow::Result<()> {
     settings.set_torrent_dht_enabled(torrent_dht);
     settings.set_torrent_pex_enabled(torrent_pex);
     settings.set_torrent_auto_trackers(torrent_auto_trackers);
+
+    let base_folder = manager
+        .db
+        .get_kv("default_download_dir")
+        .unwrap_or_else(|| get_base_download_dir());
+    set_base_download_dir(base_folder.clone());
+    settings.set_default_download_folder(base_folder.into());
+
+    let sound_enabled = manager
+        .db
+        .get_kv("play_completion_sound")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    PLAY_COMPLETION_SOUND.store(sound_enabled, Ordering::Relaxed);
+    settings.set_play_completion_sound(sound_enabled);
+
+    let double_click_action = manager
+        .db
+        .get_kv("double_click_action")
+        .unwrap_or_else(|| "open".into());
+    app.set_double_click_action(double_click_action.clone().into());
+    settings.set_double_click_action(double_click_action.into());
 
     // Settings
     let m = manager.clone();
@@ -1273,7 +1429,9 @@ fn main() -> anyhow::Result<()> {
         let url_str = String::from(new_url).trim().to_string();
         if !id_str.is_empty() && !url_str.is_empty() {
             if let Err(e) = m_up.update_task_url(&id_str, &url_str) {
+                #[cfg(debug_assertions)]
                 eprintln!("[VDM] Failed to update download URL: {:?}", e);
+                let _ = e;
             } else {
                 let _ = m_up.resume(&id_str);
                 if let Ok(snap) = m_up.snapshot_of(&id_str) {
@@ -1328,23 +1486,45 @@ fn main() -> anyhow::Result<()> {
 
     // Windows Explorer integration (Open file / Reveal in folder)
     let m = manager.clone();
+    let weak_app_open = app.as_weak();
     app.on_open_file(move |id| {
-        if let Some(path) = m.get_task_path(&String::from(id)) {
+        let id_str = String::from(id);
+        if let Some(path) = m.get_task_path(&id_str) {
             if path.exists() {
-                let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                open_file_native(&path);
+            } else if let Some(a) = weak_app_open.upgrade() {
+                a.set_confirm_title("File Not Found".into());
+                a.set_confirm_message(format!("The file \"{}\" could not be found.\nIt may have been moved, renamed, or deleted.", path.file_name().unwrap_or_default().to_string_lossy()).into());
+                a.set_confirm_target_id("".into());
+                a.set_confirm_action("info".into());
+                a.set_confirm_show_delete_file_option(false);
+                a.set_confirm_delete_file(false);
+                a.set_show_confirm(true);
             }
         }
     });
 
     let m = manager.clone();
+    let weak_app_fld = app.as_weak();
     app.on_open_folder(move |id| {
-        if let Some(path) = m.get_task_path(&String::from(id)) {
+        let id_str = String::from(id);
+        if let Some(path) = m.get_task_path(&id_str) {
             if path.exists() {
                 let _ = std::process::Command::new("explorer")
                     .arg(format!("/select,{}", path.to_string_lossy()))
                     .spawn();
             } else if let Some(parent) = path.parent() {
-                let _ = std::process::Command::new("explorer").arg(parent).spawn();
+                if parent.exists() {
+                    let _ = std::process::Command::new("explorer").arg(parent).spawn();
+                } else if let Some(a) = weak_app_fld.upgrade() {
+                    a.set_confirm_title("Folder Not Found".into());
+                    a.set_confirm_message("The download directory does not exist on disk.".into());
+                    a.set_confirm_target_id("".into());
+                    a.set_confirm_action("info".into());
+                    a.set_confirm_show_delete_file_option(false);
+                    a.set_confirm_delete_file(false);
+                    a.set_show_confirm(true);
+                }
             }
         }
     });
@@ -1495,9 +1675,12 @@ fn main() -> anyhow::Result<()> {
         let id_str = String::from(task_id).trim().to_string();
         let url_str = String::from(new_url).trim().to_string();
         if !id_str.is_empty() && !url_str.is_empty() {
+            #[cfg(debug_assertions)]
             println!("[VDM] Applying renewed download link for task {}: {}", id_str, url_str);
             if let Err(e) = m_ren_apply.update_task_url(&id_str, &url_str) {
+                #[cfg(debug_assertions)]
                 eprintln!("[VDM] Failed to update download URL: {:?}", e);
+                let _ = e;
             } else {
                 let _ = m_ren_apply.resume(&id_str);
                 *act_ren_apply.lock().unwrap() = None;
@@ -1683,9 +1866,11 @@ fn main() -> anyhow::Result<()> {
     app.on_open_settings(move || {
         if let Some(s) = weak_settings.upgrade() {
             s.set_start_at_startup(engine::startup::is_startup_enabled());
+            s.set_default_download_folder(get_base_download_dir().into());
+            s.set_play_completion_sound(PLAY_COMPLETION_SOUND.load(Ordering::Relaxed));
             let _ = s.show();
             if let Some(a) = weak_app_settings.upgrade() {
-                center_over_main(a.window(), s.window(), 580.0, 500.0);
+                center_over_main(a.window(), s.window(), 600.0, 620.0);
             }
             refresh_browser_list(&s);
         }
@@ -1728,7 +1913,9 @@ fn main() -> anyhow::Result<()> {
     let m_startup = manager.clone();
     settings.on_set_start_at_startup(move |val| {
         if let Err(e) = engine::startup::set_startup_enabled(val) {
+            #[cfg(debug_assertions)]
             eprintln!("[VDM Startup] Failed to update Windows startup setting: {}", e);
+            let _ = e;
         }
         let _ = m_startup.db.set_kv("start_at_startup", if val { "1" } else { "0" });
         if let Some(s) = weak_settings_startup.upgrade() {
@@ -1749,6 +1936,44 @@ fn main() -> anyhow::Result<()> {
         let _ = m_close_act.db.set_kv("close_action", &act_str);
         if let Some(s) = weak_settings_close_act.upgrade() {
             s.set_close_action(act_str.into());
+        }
+    });
+
+    let m_pick_fld = manager.clone();
+    let weak_settings_fld = settings.as_weak();
+    settings.on_pick_default_folder(move || {
+        let cur = get_base_download_dir();
+        if let Some(folder) = rfd::FileDialog::new().set_directory(&cur).pick_folder() {
+            let path_str = folder.to_string_lossy().to_string();
+            let _ = m_pick_fld.db.set_kv("default_download_dir", &path_str);
+            set_base_download_dir(path_str.clone());
+            if let Some(s) = weak_settings_fld.upgrade() {
+                s.set_default_download_folder(path_str.into());
+            }
+        }
+    });
+
+    let m_sound = manager.clone();
+    let weak_settings_sound = settings.as_weak();
+    settings.on_set_play_completion_sound(move |val| {
+        PLAY_COMPLETION_SOUND.store(val, Ordering::Relaxed);
+        let _ = m_sound.db.set_kv("play_completion_sound", if val { "1" } else { "0" });
+        if let Some(s) = weak_settings_sound.upgrade() {
+            s.set_play_completion_sound(val);
+        }
+    });
+
+    let m_dc = manager.clone();
+    let weak_settings_dc = settings.as_weak();
+    let weak_app_dc = app.as_weak();
+    settings.on_set_double_click_action(move |action| {
+        let act_str: String = action.into();
+        let _ = m_dc.db.set_kv("double_click_action", &act_str);
+        if let Some(a) = weak_app_dc.upgrade() {
+            a.set_double_click_action(act_str.clone().into());
+        }
+        if let Some(s) = weak_settings_dc.upgrade() {
+            s.set_double_click_action(act_str.into());
         }
     });
 
@@ -1967,6 +2192,7 @@ fn main() -> anyhow::Result<()> {
                         let active_ren_id = act_ren.lock().unwrap().clone();
                         if let Some(ref ren_id) = active_ren_id {
                             if let Ok(existing) = m.snapshot_of(ren_id) {
+                                #[cfg(debug_assertions)]
                                 println!("[VDM] Re-capturing fresh download link for explicitly renewed task {}: {}", existing.id, existing.filename);
                                 let _ = m.update_task_url_and_headers(&existing.id, &payload.url, Some(&headers));
                                 let _ = m.resume(&existing.id);
@@ -2664,7 +2890,11 @@ fn main() -> anyhow::Result<()> {
                 Ok(snap) => {
                     p_reg_t_confirm.open_dialog(&snap);
                 }
-                Err(e) => eprintln!("[VDM] Failed to add torrent download: {e}"),
+                Err(e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[VDM] Failed to add torrent download: {e}");
+                    let _ = e;
+                }
             }
 
             let _ = d.hide();
@@ -2778,7 +3008,11 @@ fn main() -> anyhow::Result<()> {
                     progress_reg_confirm.open_dialog(&snap);
                 }
             }
-            Err(e) => eprintln!("[VDM] add_download failed: {e}"),
+            Err(e) => {
+                #[cfg(debug_assertions)]
+                eprintln!("[VDM] add_download failed: {e}");
+                let _ = e;
+            }
         }
         if let Some(d) = weak_info.upgrade() {
             d.set_url("".into());
@@ -2901,7 +3135,7 @@ fn main() -> anyhow::Result<()> {
         }
         if let Some(path) = m.get_task_path(&String::from(id)) {
             if path.exists() {
-                let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                open_file_native(&path);
             }
         }
     });
@@ -3057,6 +3291,10 @@ fn main() -> anyhow::Result<()> {
         {
             let mut seen = completed_seen.lock().unwrap();
             for s in &snaps {
+                // If a task is active or queued again, allow it to trigger completion popup when it finishes
+                if s.status == "downloading" || s.status == "connecting" || s.status == "queued" || s.status == "processing" {
+                    seen.remove(&s.id);
+                }
                 if s.status == "completed" && seen.insert(s.id.clone()) {
                     let loc = manager_cloned_for_poll
                         .get_task_path(&s.id)
@@ -3461,6 +3699,7 @@ fn main() -> anyhow::Result<()> {
     if !is_autostart {
         app.show().context("show window")?;
     } else {
+        #[cfg(debug_assertions)]
         println!("[VDM] Started silently in background / system tray via startup.");
         trim_working_set();
     }
@@ -3469,4 +3708,30 @@ fn main() -> anyhow::Result<()> {
     // keep runtime alive until window closes (guard dropped here)
     drop(_guard);
     Ok(())
+}
+
+#[cfg(test)]
+mod main_tests {
+    use super::*;
+
+    #[test]
+    fn test_custom_base_download_dir_routing() {
+        let temp_dir = std::env::temp_dir().join("vdm_custom_base_test");
+        set_base_download_dir(temp_dir.to_string_lossy().to_string());
+        assert_eq!(get_base_download_dir(), temp_dir.to_string_lossy().to_string());
+
+        let video_dir = get_category_folder("Video");
+        assert_eq!(video_dir, temp_dir.join("Video").to_string_lossy().to_string());
+
+        let comp_dir = get_category_folder("Compressed");
+        assert_eq!(comp_dir, temp_dir.join("Compressed").to_string_lossy().to_string());
+    }
+
+    #[test]
+    fn test_completion_sound_setting() {
+        PLAY_COMPLETION_SOUND.store(false, Ordering::SeqCst);
+        assert!(!PLAY_COMPLETION_SOUND.load(Ordering::SeqCst));
+        PLAY_COMPLETION_SOUND.store(true, Ordering::SeqCst);
+        assert!(PLAY_COMPLETION_SOUND.load(Ordering::SeqCst));
+    }
 }

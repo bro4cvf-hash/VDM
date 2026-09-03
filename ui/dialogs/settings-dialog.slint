@@ -7,8 +7,8 @@ import { Palette } from "../theme.slint";
 // Settings & Browser Integration Dialog (Modern Minimalist)
 // ════════════════════════════════════════════════
 export component SettingsDialog inherits Window {
-    width: 580px;
-    height: 560px;
+    width: 600px;
+    height: 620px;
     no-frame: true;
     background: transparent;
     title: "Settings & Preferences";
@@ -22,6 +22,9 @@ export component SettingsDialog inherits Window {
     in-out property <float> speed-limit-mbps: 0;
     in-out property <bool> start-at-startup: false;
     in-out property <string> close-action: "tray";
+    in-out property <string> default-download-folder: "";
+    in-out property <bool> play-completion-sound: true;
+    in-out property <string> double-click-action: "open";
     in-out property <float> torrent-down-mbps: 0;
     in-out property <float> torrent-up-mbps: 0;
     in-out property <int> torrent-max-peers: 100;
@@ -37,6 +40,9 @@ export component SettingsDialog inherits Window {
     callback set-speed-limit(float);
     callback set-start-at-startup(bool);
     callback set-close-action(string);
+    callback pick-default-folder();
+    callback set-play-completion-sound(bool);
+    callback set-double-click-action(string);
     callback open-startup-apps();
     callback set-torrent-down-limit(float);
     callback set-torrent-up-limit(float);
@@ -120,12 +126,14 @@ export component SettingsDialog inherits Window {
                 }
             }
 
-            // ── Main Body ──
-            VerticalLayout {
-                padding: 16px;
-                spacing: 14px;
+            // ── Segmented Tab Bar (Permanently Fixed Below Title) ──
+            HorizontalLayout {
+                height: 46px;
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 2px;
+                padding-bottom: 8px;
 
-                // ── Segmented Tab Bar with Centered Apple Spring Indicator ──
                 Rectangle {
                     height: 36px;
                     border-radius: 8px;
@@ -182,6 +190,21 @@ export component SettingsDialog inherits Window {
                         }
                     }
                 }
+            }
+
+            // ── Scrollable Tab Content Viewport ──
+            Flickable {
+                vertical-stretch: 1;
+                viewport-height: (root.active-tab == 0 ? Math.max(self.height, 140px + root.browsers.length * 48px) :
+                                  root.active-tab == 1 ? 840px :
+                                  root.active-tab == 2 ? 400px : 500px);
+
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 4px;
+                    padding-bottom: 16px;
+                    spacing: 12px;
 
                 // ── Tab 0: Browsers & Extensions ──
                 if root.active-tab == 0: VerticalLayout {
@@ -767,6 +790,282 @@ export component SettingsDialog inherits Window {
                         }
                     }
 
+                    // Row Double-Click Action Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                spacing: 8px;
+
+                                VerticalLayout {
+                                    spacing: 1px;
+
+                                    Text {
+                                        text: "Row Double-Click Action";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Configure behavior when double-clicking a download in the list";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                // Option 1: Open File / Folder
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: root.double-click-action == "open" ? Palette.accent-tint-bg : (opt-dc-open.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+                                    border-width: 1px;
+                                    border-color: root.double-click-action == "open" ? Palette.accent : Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+
+                                    opt-dc-open := TouchArea {
+                                        clicked => {
+                                            root.double-click-action = "open";
+                                            root.set-double-click-action("open");
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: center;
+                                        Icon {
+                                            source: @image-url("../icons/open.svg");
+                                            width: 12px;
+                                            height: 12px;
+                                            y: (parent.height - self.height) / 2;
+                                            tint: root.double-click-action == "open" ? Palette.accent : Palette.text-secondary;
+                                        }
+                                        Text {
+                                            text: "Open / Reveal";
+                                            font-size: 11px;
+                                            font-weight: root.double-click-action == "open" ? 600 : 400;
+                                            color: root.double-click-action == "open" ? Palette.text-primary : Palette.text-secondary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Option 2: Show Details
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: root.double-click-action == "details" ? Palette.accent-tint-bg : (opt-dc-det.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+                                    border-width: 1px;
+                                    border-color: root.double-click-action == "details" ? Palette.accent : Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+
+                                    opt-dc-det := TouchArea {
+                                        clicked => {
+                                            root.double-click-action = "details";
+                                            root.set-double-click-action("details");
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: center;
+                                        Icon {
+                                            source: @image-url("../icons/copy.svg");
+                                            width: 12px;
+                                            height: 12px;
+                                            y: (parent.height - self.height) / 2;
+                                            tint: root.double-click-action == "details" ? Palette.accent : Palette.text-secondary;
+                                        }
+                                        Text {
+                                            text: "Show Details";
+                                            font-size: 11px;
+                                            font-weight: root.double-click-action == "details" ? 600 : 400;
+                                            color: root.double-click-action == "details" ? Palette.text-primary : Palette.text-secondary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Option 3: Toggle Start / Pause
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: root.double-click-action == "toggle" ? Palette.accent-tint-bg : (opt-dc-tog.has-hover ? Palette.hover-bg : Palette.card-secondary-bg);
+                                    border-width: 1px;
+                                    border-color: root.double-click-action == "toggle" ? Palette.accent : Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+
+                                    opt-dc-tog := TouchArea {
+                                        clicked => {
+                                            root.double-click-action = "toggle";
+                                            root.set-double-click-action("toggle");
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: center;
+                                        Icon {
+                                            source: @image-url("../icons/play.svg");
+                                            width: 12px;
+                                            height: 12px;
+                                            y: (parent.height - self.height) / 2;
+                                            tint: root.double-click-action == "toggle" ? Palette.accent : Palette.text-secondary;
+                                        }
+                                        Text {
+                                            text: "Pause / Resume";
+                                            font-size: 11px;
+                                            font-weight: root.double-click-action == "toggle" ? 600 : 400;
+                                            color: root.double-click-action == "toggle" ? Palette.text-primary : Palette.text-secondary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Default Download Location Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                spacing: 8px;
+
+                                VerticalLayout {
+                                    spacing: 1px;
+
+                                    Text {
+                                        text: "Default Download Location";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Palette.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Base directory where downloaded files and category folders are saved";
+                                        font-size: 10.5px;
+                                        color: Palette.text-secondary;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: Palette.card-secondary-bg;
+                                    border-width: 1px;
+                                    border-color: Palette.border-subtle;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        Rectangle {
+                                            width: 14px;
+                                            height: 14px;
+                                            y: (parent.height - self.height) / 2;
+                                            Icon {
+                                                source: @image-url("../icons/folder.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                                tint: Palette.accent;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: root.default-download-folder != "" ? root.default-download-folder : "Default (Downloads)";
+                                            font-size: 11.5px;
+                                            color: Palette.text-primary;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 86px;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: browse-fld-t.pressed ? Palette.hover-bg :
+                                                browse-fld-t.has-hover ? Palette.hover-bg : Palette.card-secondary-bg;
+                                    border-width: 1px;
+                                    border-color: Palette.border-subtle;
+                                    animate background { duration: 120ms; }
+
+                                    browse-fld-t := TouchArea {
+                                        clicked => { root.pick-default-folder(); }
+                                    }
+
+                                    Text {
+                                        text: "Change…";
+                                        font-size: 11.5px;
+                                        font-weight: 600;
+                                        color: browse-fld-t.has-hover ? Palette.text-primary : Palette.text-secondary;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Sound Notifications Card
+                    Rectangle {
+                        border-radius: 10px;
+                        background: Palette.card-bg;
+                        border-width: 1px;
+                        border-color: Palette.border-subtle;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            SwitchRow {
+                                title: "Completion Audio Chime";
+                                subtitle: "Play a subtle Windows notification chime when a download finishes";
+                                checked: root.play-completion-sound;
+                                toggled(val) => {
+                                    root.play-completion-sound = val;
+                                    root.set-play-completion-sound(val);
+                                }
+                            }
+                        }
+                    }
+
                     Rectangle {
                         border-radius: 10px;
                         background: Palette.card-bg;
@@ -1224,12 +1523,30 @@ export component SettingsDialog inherits Window {
                     }
                 }
 
-                Rectangle { vertical-stretch: 1; }
+                }
+            }
 
-                // ── Footer ──
+            // ── Fixed Bottom Footer Bar (Always pinned at bottom, never scrolled away) ──
+            Rectangle {
+                height: 52px;
+                background: Palette.modal-bg;
+
+                // Subtle top separator line
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: 100%;
+                    height: 1px;
+                    background: Palette.border-subtle;
+                }
+
                 HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
                     spacing: 10px;
                     alignment: space-between;
+                    y: (parent.height - 32px) / 2;
+                    height: 32px;
 
                     // Left Helper Action
                     HorizontalLayout {
@@ -1281,7 +1598,7 @@ export component SettingsDialog inherits Window {
 
                     // Right Done Button
                     Rectangle {
-                        width: 86px;
+                        width: 90px;
                         height: 32px;
                         border-radius: 7px;
                         background: done-touch.pressed ? Palette.accent-pressed :

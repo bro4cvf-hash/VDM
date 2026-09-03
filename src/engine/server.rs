@@ -82,14 +82,17 @@ impl LoopbackServer {
         for attempt in 1..=5 {
             match TcpListener::bind(&addr).await {
                 Ok(l) => {
+                    #[cfg(debug_assertions)]
                     println!("[VDM Server] Loopback API listening on http://{}", addr);
                     listener_opt = Some(l);
                     break;
                 }
                 Err(e) => {
+                    let _ = &e;
                     if attempt < 5 {
                         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
                     } else {
+                        #[cfg(debug_assertions)]
                         println!("[VDM Server] Note: Port {} is managed by active instance ({})", self.port, e);
                     }
                 }
@@ -107,11 +110,15 @@ impl LoopbackServer {
                     let s = self.clone();
                     tokio::spawn(async move {
                         if let Err(e) = s.handle_connection(stream).await {
+                            let _ = &e;
+                            #[cfg(debug_assertions)]
                             eprintln!("[VDM Server] Connection error: {}", e);
                         }
                     });
                 }
                 Err(e) => {
+                    let _ = &e;
+                    #[cfg(debug_assertions)]
                     eprintln!("[VDM Server] Accept error: {}", e);
                 }
             }
@@ -211,7 +218,7 @@ impl LoopbackServer {
             let body = serde_json::json!({
                 "status": "ok",
                 "app": "VDM",
-                "version": "0.3.0"
+                "version": env!("CARGO_PKG_VERSION")
             })
             .to_string();
 
@@ -249,15 +256,15 @@ impl LoopbackServer {
             }
             let body_str = if let Some(hend) = header_end {
                 if buffer.len() >= hend {
-                    &request_str[hend..]
+                    String::from_utf8_lossy(&buffer[hend..])
                 } else {
-                    ""
+                    std::borrow::Cow::Borrowed("")
                 }
             } else {
-                ""
+                std::borrow::Cow::Borrowed("")
             };
 
-            if let Ok(payload) = serde_json::from_str::<DownloadPayload>(body_str) {
+            if let Ok(payload) = serde_json::from_str::<DownloadPayload>(&body_str) {
                 if !payload.url.trim().is_empty() {
                     let _ = self.sender.send(ServerEvent::AddDownload(payload));
 
@@ -455,6 +462,26 @@ mod tests {
             }
         }
         assert_eq!(event_count, 10);
+    }
+
+    #[tokio::test]
+    async fn test_loopback_server_health_version() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<ServerEvent>();
+        let test_port = 19193;
+        let server = Arc::new(LoopbackServer::new(test_port, tx));
+
+        tokio::spawn(async move {
+            server.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", test_port)).await.unwrap();
+        stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+        let mut resp = String::new();
+        stream.read_to_string(&mut resp).await.unwrap();
+        assert!(resp.contains("HTTP/1.1 200 OK"));
+        assert!(resp.contains(&format!("\"version\":\"{}\"", env!("CARGO_PKG_VERSION"))));
     }
 }
 

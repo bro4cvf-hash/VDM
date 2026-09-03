@@ -126,3 +126,25 @@ Whenever executing tasks in this codebase, evaluate and leverage specialized ski
 - **Creating Modular `.md` Deep-Dives**:
   - When a topic is too intricate or specialized for `PROJECT.md` (e.g., custom IPC protocol details, yt-dlp format selection matrices, shell icon COM extraction quirks), create a dedicated document in `docs/<topic>.md`.
   - Add an entry and link in `PROJECT.md` under the "Modular Technical Documentation & Reference Index" section.
+
+## 10. Native Shell Operations, Stream Completion & UI Alignment Invariants
+- **Reliable Win32 File Execution (`open_file_native`)**:
+  - Never launch files via `std::process::Command::new("explorer").arg(&path)`. Windows Explorer treats non-folder files inconsistently and frequently opens the "Libraries" / "Documents" folder instead of the user's default registered media player or document editor.
+  - Always use `windows_sys::Win32::UI::Shell::ShellExecuteExW` with verb `"open"` and `SW_SHOWNORMAL` (falling back to `cmd /c start "" "<path>"`), which guarantees proper application dispatch.
+  - If a file or folder no longer exists on disk, provide clear user feedback in the UI rather than failing silently.
+- **Asynchronous File Deletion Lock Contention**:
+  - On Windows, sending `Cmd::Stop` to active Tokio download workers releases file handles asynchronously. Immediately calling `fs::remove_file` on the same thread results in `ERROR_SHARING_VIOLATION`.
+  - Execute file deletion on a background worker thread with brief exponential retry intervals (10 attempts, 50ms sleep) and support directory deletion (`fs::remove_dir_all`) for multi-file BitTorrent packages.
+- **Indeterminate Stream Completion Invariant**:
+  - Downloads lacking `Content-Length` (chunked HTTP streams or live broadcasts) must NEVER be marked complete based solely on `total <= 0`.
+  - Completion requires explicit EOF (`all_cells_done == true`). Connection drops prior to EOF must register as interrupted or errored.
+- **Thread-Safe Shell Icon Caching**:
+  - `slint::Image` is not `Send + Sync`. To avoid redundant Win32 `SHGetFileInfoW` and GDI DIB extraction calls, store raw RGBA pixel data in a thread-safe `ICON_RAW_CACHE: Mutex<Option<HashMap<String, Option<(Vec<u8>, u32, u32)>>>>` keyed by file extension. Construct the `slint::Image` via `SharedPixelBuffer::clone_from_slice` on-demand in the UI thread.
+- **Table Column Alignment Invariant**:
+  - Whenever column visibility properties (`show-col-*`) and widths (`col-*-width`) are declared in the table header, the corresponding table row delegates must render identical column items with matching widths. Omitting a column in the row delegate shifts subsequent row action buttons out of alignment.
+- **Toast Feedback Idiom (non-modal action confirmation)**:
+  - Bottom-right overlay `Rectangle` declared LAST in `main-window.slint` (topmost z-order), driven by `toast-text: string` + `toast-visible: bool` on `AppWindow`.
+  - Auto-hide via native Slint `Timer { interval: 2400ms; running: root.toast-visible; triggered => { root.toast-visible = false; } }` — no Rust thread needed.
+  - Rust `show_toast(&AppWindow, &str)` sets `visible=false`, then text, then `visible=true`; the false→true toggle restarts the Timer on rapid repeats. Callbacks run on the UI thread so the sets apply synchronously in order.
+  - Only toast when the action did something (guard with `get_downloading_count()` / `get_error_count()` / etc.); silent no-ops need no feedback.
+

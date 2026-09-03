@@ -98,7 +98,7 @@ export component SearchField inherits Rectangle {
     ti := TextInput {
         x: 32px;
         y: 0;
-        width: parent.width - 42px;
+        width: ti.text != "" ? parent.width - 56px : parent.width - 42px;
         height: 100%;
         vertical-alignment: center;
         single-line: true;
@@ -131,6 +131,34 @@ export component SearchField inherits Rectangle {
         font-size: 13px;
         color: Palette.text-tertiary;
         vertical-alignment: center;
+    }
+
+    if ti.text != "": Rectangle {
+        x: parent.width - 24px;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: clear-btn-touch.has-hover ? Palette.hover-bg : transparent;
+        animate background { duration: 120ms; }
+
+        Icon {
+            source: @image-url("../icons/x.svg");
+            width: 10px;
+            height: 10px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            tint: clear-btn-touch.has-hover ? Palette.text-primary : Palette.text-tertiary;
+            animate tint { duration: 120ms; }
+        }
+
+        clear-btn-touch := TouchArea {
+            clicked => {
+                ti.text = "";
+                root.edited("");
+                ti.focus();
+            }
+        }
     }
 }
 

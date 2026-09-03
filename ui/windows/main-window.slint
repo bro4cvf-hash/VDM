@@ -123,6 +123,7 @@ export component AppWindow inherits Window {
     callback remove-download(string, bool);
     callback pause-all();
     callback resume-all();
+    callback retry-failed();
     callback clear-completed();
     callback set-speed-limit(float);
     callback set-max-connections(int);
@@ -137,6 +138,7 @@ export component AppWindow inherits Window {
     callback queue-action(string, string);
     callback set-double-click-action(string);
     callback copy-url(string);
+    callback copy-file-path(string);
     callback filter-changed(string);
     callback search-changed(string);
     callback row-clicked(int, bool, bool);
@@ -153,6 +155,10 @@ export component AppWindow inherits Window {
     in-out property <int> selected-count: 0;
     in-out property <string> first-selected-id: "";
     in-out property <string> first-selected-filename: "";
+
+    // ---- toast feedback state (set from Rust via show_toast, auto-hidden by Timer) ----
+    in-out property <string> toast-text: "";
+    in-out property <bool> toast-visible: false;
 
     function handle-sort-click(col: string) {
         if root.sort-column == col {
@@ -285,10 +291,30 @@ export component AppWindow inherits Window {
         if max-active <= 16 { return 5; }
         return 6;
     }
+    // per-filter empty-state copy (modern managers explain *this* view, not a generic blank)
+    function empty-title() -> string {
+        if root.search-text != "" { return "No matching downloads"; }
+        if root.active-filter == "Downloading" { return "Nothing downloading"; }
+        if root.active-filter == "Completed" { return "No completed downloads"; }
+        if root.active-filter == "Paused" { return "No paused downloads"; }
+        if root.active-filter == "Queued" { return "Queue is empty"; }
+        if root.active-filter == "Error" { return "No failed downloads"; }
+        if root.active-filter == "cat:compressed" { return "No archives yet"; }
+        if root.active-filter == "cat:installer" { return "No programs yet"; }
+        if root.active-filter == "cat:video" { return "No videos yet"; }
+        if root.active-filter == "cat:audio" { return "No music yet"; }
+        if root.active-filter == "cat:document" { return "No documents yet"; }
+        return "No Downloads";
+    }
+    function empty-sub() -> string {
+        if root.search-text != "" { return "Try a different search term."; }
+        if root.active-filter == "Error" { return "Failed downloads will appear here."; }
+        if root.active-filter == "All" { return "Paste a link or click Add URL to start."; }
+        return "Downloads in this view will appear here.";
+    }
     // y offset of the sliding sidebar indicator per filter (relative to the sidebar)
     // geometry: pad 6 + hdr 16 + sp 10 -> status items at 32 + i*34
-    function side-y(f: string) -> length {
-        if f == "Downloading" { return 66px; }
+    function side-y(f: string) -> length {        if f == "Downloading" { return 66px; }
         if f == "Completed" { return 100px; }
         if f == "Paused" { return 134px; }
         if f == "Queued" { return 168px; }
@@ -348,8 +374,17 @@ export component AppWindow inherits Window {
                     return accept;
                 }
 
+                // Ctrl+Shift+C: Copy File Path of selected download(s)
+                if event.modifiers.control && event.modifiers.shift && (event.text == "c" || event.text == "C") {
+                    if root.selected-index >= 0 && root.selected-index < root.downloads.length {
+                        let item = root.downloads[root.selected-index];
+                        root.copy-file-path(item.id);
+                        return accept;
+                    }
+                }
+
                 // Ctrl+C: Copy URL of selected download(s)
-                if event.modifiers.control && (event.text == "c" || event.text == "C") {
+                if event.modifiers.control && !event.modifiers.shift && (event.text == "c" || event.text == "C") {
                     if root.selected-index >= 0 && root.selected-index < root.downloads.length {
                         let item = root.downloads[root.selected-index];
                         root.copy-url(item.url);
@@ -639,7 +674,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "All";
                             icon-src: @image-url("../icons/folder.svg");
-                            icon-nudge: -1px;
                             count: root.total-count;
                             is-active: root.active-filter == "All";
                             tint: #98989D;
@@ -648,7 +682,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "Downloading";
                             icon-src: @image-url("../icons/zap.svg");
-                            icon-nudge: 1px;
                             count: root.downloading-count;
                             is-active: root.active-filter == "Downloading";
                             tint: #64D2FF;
@@ -665,7 +698,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "Paused";
                             icon-src: @image-url("../icons/pause.svg");
-                            icon-nudge: 1px;
                             count: root.paused-count;
                             is-active: root.active-filter == "Paused";
                             tint: #FF9F0A;
@@ -674,7 +706,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "Queued";
                             icon-src: @image-url("../icons/clock.svg");
-                            icon-nudge: 1px;
                             count: root.queued-count;
                             is-active: root.active-filter == "Queued";
                             tint: #BF5AF2;
@@ -714,7 +745,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "Video";
                             icon-src: @image-url("../icons/film.svg");
-                            icon-nudge: -1px;
                             count: root.count-video;
                             is-active: root.active-filter == "cat:video";
                             tint: #64D2FF;
@@ -723,7 +753,6 @@ export component AppWindow inherits Window {
                         SideItem {
                             label: "Music";
                             icon-src: @image-url("../icons/music.svg");
-                            icon-nudge: -1px;
                             count: root.count-music;
                             is-active: root.active-filter == "cat:audio";
                             tint: #FF453A;
@@ -987,10 +1016,10 @@ export component AppWindow inherits Window {
                                         drop-shadow-color: Palette.accent-tint-bg;
 
                                         Icon {
-                                            source: @image-url("../icons/download.svg");
+                                            source: root.active-filter == "Error" ? @image-url("../icons/alert.svg") : @image-url("../icons/download.svg");
                                             width: 24px;
                                             height: 24px;
-                                            tint: Palette.accent-light;
+                                            tint: root.active-filter == "Error" ? #FF6B5E : Palette.accent-light;
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
                                         }
@@ -998,7 +1027,7 @@ export component AppWindow inherits Window {
                                 }
 
                                 Text {
-                                    text: "No Downloads";
+                                    text: root.empty-title();
                                     font-size: 15px;
                                     font-weight: 700;
                                     color: Palette.text-primary;
@@ -1006,7 +1035,7 @@ export component AppWindow inherits Window {
                                 }
 
                                 Text {
-                                    text: "Paste a link or click Add URL to start.";
+                                    text: root.empty-sub();
                                     font-size: 13px;
                                     color: Palette.text-secondary;
                                     horizontal-alignment: center;
@@ -1017,11 +1046,20 @@ export component AppWindow inherits Window {
                                     padding-top: 8px;
 
                                     PrimaryBtn {
-                                        width: 110px;
-                                        text: "Add URL";
-                                        icon-src: @image-url("../icons/plus.svg");
+                                        width: root.search-text != "" ? 125px : 110px;
+                                        text: root.search-text != "" ? "Clear Search" : "Add URL";
+                                        icon-src: root.search-text != "" ? @image-url("../icons/x.svg") : @image-url("../icons/plus.svg");
                                         has-icon: true;
-                                        clicked => { search-box.clear-focus(); root.open-add(); }
+                                        clicked => {
+                                            if root.search-text != "" {
+                                                root.search-text = "";
+                                                root.search-changed("");
+                                                main-focus.focus();
+                                            } else {
+                                                search-box.clear-focus();
+                                                root.open-add();
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1070,10 +1108,11 @@ export component AppWindow inherits Window {
 
                                             let click-x = 190px + 12px + self.mouse-x;
                                             let click-y = 48px + 30px + 8px + list-scroll.viewport-y + idx * 41px + self.mouse-y;
+                                            let menu-h = root.selected-count > 1 ? 266px : Math.min(525px, root.height - 60px);
                                             root.context-menu-origin-x = click-x;
                                             root.context-menu-origin-y = click-y;
                                             root.context-menu-x = Math.max(195px, Math.min(root.width - 245px, click-x));
-                                            root.context-menu-y = Math.max(52px, Math.min(root.height - 450px, click-y));
+                                            root.context-menu-y = Math.max(50px, Math.min(root.height - menu-h - 10px, click-y));
                                             root.show-context-menu = true;
                                         }
                                     }
@@ -1188,8 +1227,8 @@ export component AppWindow inherits Window {
                                         }
 
                                         Text {
-                                            width: 36px;
-                                            text: item.progress-text;
+                                            width: 58px;
+                                            text: (item.status == "downloading" || item.status == "connecting") && item.speed != "" ? item.speed : item.progress-text;
                                             font-size: 11px;
                                             font-weight: 600;
                                             color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
@@ -1232,6 +1271,16 @@ export component AppWindow inherits Window {
                                     if root.show-col-eta: Text {
                                         text: item.status == "completed" ? "—" : (item.eta != "" ? item.eta : "—");
                                         width: root.col-eta-width;
+                                        font-size: 12px;
+                                        color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Col 7: Added Date
+                                    if root.show-col-date: Text {
+                                        text: item.date-text;
+                                        width: root.col-date-width;
                                         font-size: 12px;
                                         color: (idx == root.selected-index || item.selected) ? #ffffffdd : Palette.text-secondary;
                                         overflow: elide;
@@ -1349,7 +1398,7 @@ export component AppWindow inherits Window {
                             Text {
                                 text: root.total-count + " files";
                                 font-size: 11px;
-                                color: #98989D;
+                                color: Palette.text-secondary;
                                 vertical-alignment: center;
                             }
                             Text {
@@ -1362,6 +1411,20 @@ export component AppWindow inherits Window {
                                 text: root.completed-count + " done";
                                 font-size: 11px;
                                 color: #30D158;
+                                vertical-alignment: center;
+                            }
+                            if root.error-count > 0: Text {
+                                text: root.error-count + (root.error-count > 1 ? " errors" : " error");
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #FF453A;
+                                vertical-alignment: center;
+                            }
+                            if root.total-speed > 0: Text {
+                                text: "• " + root.total-speed-text;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: Palette.accent-light;
                                 vertical-alignment: center;
                             }
 
@@ -1517,6 +1580,13 @@ export component AppWindow inherits Window {
                             tip-text: "Pause All";
                             tint: #FF6B5E;
                             clicked => { search-box.clear-focus(); main-focus.focus(); root.pause-all(); }
+                        }
+
+                        if root.error-count > 0: ToolIcon {
+                            icon-src: @image-url("../icons/refresh.svg");
+                            tip-text: "Retry All Failed";
+                            tint: #FF453A;
+                            clicked => { search-box.clear-focus(); main-focus.focus(); root.retry-failed(); }
                         }
 
                         ToolIcon {
@@ -2432,6 +2502,217 @@ export component AppWindow inherits Window {
         }
 
         // ══════════════════════════════════════════
+        // FLOATING MULTI-SELECTION BATCH ACTION BAR
+        // ══════════════════════════════════════════
+        if root.selected-count > 1: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - 76px;
+            height: 38px;
+            border-radius: 19px;
+            background: Palette.card-bg;
+            border-width: 1px;
+            border-color: Palette.border-subtle;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            drop-shadow-offset-y: 4px;
+            animate y { duration: 180ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+            animate opacity { duration: 150ms; easing: ease-out; }
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: center;
+
+                // Selection count pill
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: center;
+
+                    Rectangle {
+                        width: 16px;
+                        height: 16px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 8px;
+                        background: Palette.accent-tint-bg;
+                        Icon {
+                            source: @image-url("../icons/check.svg");
+                            width: 10px;
+                            height: 10px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            tint: Palette.accent;
+                        }
+                    }
+
+                    Text {
+                        text: root.selected-count + " selected";
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        color: Palette.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Vertical Divider
+                Rectangle {
+                    width: 1px;
+                    height: 18px;
+                    y: (parent.height - self.height) / 2;
+                    background: Palette.border-subtle;
+                }
+
+                // Resume Selected Button
+                Rectangle {
+                    height: 26px;
+                    border-radius: 6px;
+                    background: batch-res-t.pressed ? Palette.hover-bg : (batch-res-t.has-hover ? Palette.hover-bg : transparent);
+                    batch-res-t := TouchArea {
+                        clicked => { root.resume-selected(); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 5px;
+                        alignment: center;
+                        Icon {
+                            source: @image-url("../icons/play.svg");
+                            width: 11px;
+                            height: 11px;
+                            y: (parent.height - self.height) / 2;
+                            tint: #30D158;
+                        }
+                        Text {
+                            text: "Resume";
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: Palette.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Pause Selected Button
+                Rectangle {
+                    height: 26px;
+                    border-radius: 6px;
+                    background: batch-pause-t.pressed ? Palette.hover-bg : (batch-pause-t.has-hover ? Palette.hover-bg : transparent);
+                    batch-pause-t := TouchArea {
+                        clicked => { root.pause-selected(); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 5px;
+                        alignment: center;
+                        Icon {
+                            source: @image-url("../icons/pause.svg");
+                            width: 11px;
+                            height: 11px;
+                            y: (parent.height - self.height) / 2;
+                            tint: #FF9F0A;
+                        }
+                        Text {
+                            text: "Pause";
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: Palette.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Delete Selected Button
+                Rectangle {
+                    height: 26px;
+                    border-radius: 6px;
+                    background: batch-del-t.pressed ? #FF453A22 : (batch-del-t.has-hover ? #FF453A18 : transparent);
+                    batch-del-t := TouchArea {
+                        clicked => {
+                            root.confirm-title = "Delete " + root.selected-count + " Downloads";
+                            root.confirm-message = "Are you sure you want to delete " + root.selected-count + " selected downloads?";
+                            root.confirm-target-id = "";
+                            root.confirm-action = "delete-selected";
+                            root.confirm-show-delete-file-option = true;
+                            root.confirm-delete-file = false;
+                            root.show-confirm = true;
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 5px;
+                        alignment: center;
+                        Icon {
+                            source: @image-url("../icons/x.svg");
+                            width: 11px;
+                            height: 11px;
+                            y: (parent.height - self.height) / 2;
+                            tint: #FF453A;
+                        }
+                        Text {
+                            text: "Delete";
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: #FF453A;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Copy Paths Button
+                Rectangle {
+                    height: 26px;
+                    border-radius: 6px;
+                    background: batch-copy-t.pressed ? Palette.hover-bg : (batch-copy-t.has-hover ? Palette.hover-bg : transparent);
+                    batch-copy-t := TouchArea {
+                        clicked => { root.copy-file-path(""); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 5px;
+                        alignment: center;
+                        Icon {
+                            source: @image-url("../icons/copy.svg");
+                            width: 11px;
+                            height: 11px;
+                            y: (parent.height - self.height) / 2;
+                            tint: Palette.text-secondary;
+                        }
+                        Text {
+                            text: "Copy Paths";
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: Palette.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Dismiss / Clear Selection (✕)
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 11px;
+                    background: batch-clr-t.pressed ? Palette.hover-bg : (batch-clr-t.has-hover ? Palette.hover-bg : transparent);
+                    batch-clr-t := TouchArea {
+                        clicked => { root.deselect-all-items(); }
+                    }
+                    Icon {
+                        source: @image-url("../icons/x.svg");
+                        width: 9px;
+                        height: 9px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        tint: Palette.text-muted;
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════
         // CONTEXT MENU OVERLAY
         // ══════════════════════════════════════════
         Rectangle {
@@ -2463,7 +2744,7 @@ export component AppWindow inherits Window {
                 x: root.show-context-menu ? root.context-menu-x : root.context-menu-origin-x;
                 y: root.show-context-menu ? root.context-menu-y : root.context-menu-origin-y;
                 width: root.show-context-menu ? 236px : 0px;
-                height: root.show-context-menu ? (root.selected-count > 1 ? 236px : 495px) : 0px;
+                height: root.show-context-menu ? (root.selected-count > 1 ? 266px : Math.min(525px, root.height - 60px)) : 0px;
                 border-radius: 10px;
                 background: Palette.surface-bg;
                 border-width: root.show-context-menu ? 1px : 0px;
@@ -2481,11 +2762,12 @@ export component AppWindow inherits Window {
 
                 TouchArea {}
 
-                Rectangle {
+                Flickable {
                     x: 0px;
                     y: 0px;
                     width: 236px;
-                    height: root.selected-count > 1 ? 236px : 495px;
+                    height: 100%;
+                    viewport-height: root.selected-count > 1 ? 266px : 525px;
 
                     // Batch Multi-Selection Menu
                     if root.selected-count > 1: VerticalLayout {
@@ -2548,6 +2830,18 @@ export component AppWindow inherits Window {
                             clicked => {
                                 root.show-context-menu = false;
                                 root.copy-url("");
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Copy File Paths (" + root.selected-count + ")";
+                            icon-src: @image-url("../icons/folder.svg");
+                            tint: #64D2FF;
+                            shortcut: "Ctrl+Shift+C";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.copy-file-path("");
                             }
                         }
 
@@ -2635,6 +2929,19 @@ export component AppWindow inherits Window {
                                 root.show-context-menu = false;
                                 root.context-submenu = 0;
                                 root.copy-url(root.context-url);
+                            }
+                        }
+
+                        ContextMenuItem {
+                            label: "Copy File Path";
+                            icon-src: @image-url("../icons/folder.svg");
+                            tint: #64D2FF;
+                            shortcut: "Ctrl+Shift+C";
+                            enabled: true;
+                            clicked => {
+                                root.show-context-menu = false;
+                                root.context-submenu = 0;
+                                root.copy-file-path(root.context-id);
                             }
                         }
 
@@ -3022,6 +3329,70 @@ export component AppWindow inherits Window {
                 x: parent.width - 8px; y: parent.height - 8px; width: 8px; height: 8px;
                 mouse-cursor: nwse-resize;
                 moved => { if self.pressed { root.resize-window("se"); } }
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // TOAST FEEDBACK — bottom-right, non-modal, auto-dismissed by Rust show_toast().
+        // Declared last so it paints above every overlay. Click to dismiss early.
+        // ══════════════════════════════════════════
+        Rectangle {
+            x: parent.width - self.width - 16px;
+            y: root.toast-visible ? parent.height - self.height - 48px : parent.height - self.height - 30px;
+            width: 280px;
+            height: 42px;
+            border-radius: 10px;
+            background: Palette.surface-bg;
+            border-width: 1px;
+            border-color: Palette.border-color;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000cc;
+            opacity: root.toast-visible ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate opacity { duration: 180ms; easing: ease-out; }
+            animate y { duration: 220ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
+
+            Timer {
+                interval: 2400ms;
+                running: root.toast-visible;
+                triggered => { root.toast-visible = false; }
+            }
+
+            TouchArea {
+                clicked => { root.toast-visible = false; }
+            }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 11px;
+                    background: #30D15822;
+
+                    Icon {
+                        source: @image-url("../icons/check.svg");
+                        width: 11px;
+                        height: 11px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        tint: #30D158;
+                    }
+                }
+
+                Text {
+                    text: root.toast-text;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Palette.text-primary;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
             }
         }
     }

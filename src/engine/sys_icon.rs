@@ -2,6 +2,10 @@
 //! and convert to Slint Images for the Download Info Dialog and Task List.
 
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+static ICON_RAW_CACHE: Mutex<Option<HashMap<String, Option<(Vec<u8>, u32, u32)>>>> = Mutex::new(None);
 
 #[cfg(windows)]
 mod win {
@@ -198,10 +202,29 @@ mod win {
 pub fn get_file_icon_image(filename: &str) -> Option<Image> {
     #[cfg(windows)]
     {
-        if let Some((rgba, w, h)) = win::get_icon_rgba(filename) {
+        let ext = if let Some(dot_idx) = filename.rfind('.') {
+            filename[dot_idx..].to_ascii_lowercase()
+        } else {
+            filename.to_ascii_lowercase()
+        };
+
+        let raw_opt = {
+            let mut cache_guard = ICON_RAW_CACHE.lock().unwrap();
+            let cache = cache_guard.get_or_insert_with(HashMap::new);
+            if let Some(cached) = cache.get(&ext) {
+                cached.clone()
+            } else {
+                let fresh = win::get_icon_rgba(filename);
+                cache.insert(ext, fresh.clone());
+                fresh
+            }
+        };
+
+        if let Some((rgba, w, h)) = raw_opt {
             let pixel_buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&rgba, w, h);
             return Some(Image::from_rgba8(pixel_buf));
         }
+        return None;
     }
     #[allow(unreachable_code)]
     None

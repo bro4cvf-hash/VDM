@@ -9,7 +9,7 @@ Built entirely in **Rust** and **Slint UI** — lightning fast, minimal memory f
 
 <br/>
 
-[![Release](https://img.shields.io/badge/Release-v1.0.0-0A84FF?style=flat-square)](../../releases/latest)
+[![Release](https://img.shields.io/badge/Release-v1.0.1-0A84FF?style=flat-square)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](../../releases/latest)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![UI](https://img.shields.io/badge/UI-Slint%201.12-8E5CE6?style=flat-square)](https://slint.dev)

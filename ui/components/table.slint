@@ -152,7 +152,6 @@ export component ColMenuItem inherits Rectangle {
 export component SideItem inherits Rectangle {
     in property <string> label: "";
     in property <image> icon-src;
-    in property <length> icon-nudge: 0px;
     in property <int> count: 0;
     in property <bool> is-active: false;
     in property <color> tint: Palette.text-secondary;
@@ -177,7 +176,7 @@ export component SideItem inherits Rectangle {
                 width: 15px;
                 height: 15px;
                 x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2 + root.icon-nudge;
+                y: (parent.height - self.height) / 2;
                 tint: is-active ? #ffffff : tint;
             }
         }
